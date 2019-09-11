@@ -1,64 +1,56 @@
 package com.arapp;
 
 import android.Manifest;
-import android.app.Activity;
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.ImageFormat;
 import android.graphics.SurfaceTexture;
-import android.hardware.Camera;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CaptureRequest;
-import android.hardware.camera2.params.SessionConfiguration;
 import android.hardware.camera2.params.StreamConfigurationMap;
 import android.media.Image;
 import android.media.ImageReader;
 import android.os.Bundle;
+import android.os.Handler;
 import android.support.annotation.NonNull;
-import android.support.design.widget.FloatingActionButton;
-import android.support.design.widget.Snackbar;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
-import android.support.v7.widget.Toolbar;
+import android.util.Log;
 import android.view.Surface;
-import android.view.SurfaceView;
 import android.view.TextureView;
-import android.view.View;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraCaptureSession;
+import android.widget.ImageView;
 import android.widget.Toast;
 
-import org.opencv.core.DMatch;
-import org.opencv.features2d.BFMatcher;
-import org.opencv.core.Core;
-import org.opencv.core.Mat;
-import org.opencv.core.MatOfDMatch;
-import org.opencv.features2d.BFMatcher;
-import org.opencv.android.BaseLoaderCallback;
-import org.opencv.android.CameraBridgeViewBase.CvCameraViewFrame;
-import org.opencv.android.LoaderCallbackInterface;
+import com.ar.core.Matcher;
+import com.ar.core.Utils;
+import com.ar.loader3d.ObjLoader;
+
 import org.opencv.android.OpenCVLoader;
+import org.opencv.core.MatOfPoint2f;
+import org.opencv.core.Point;
 import org.opencv.core.Core;
-import org.opencv.core.CvType;
 import org.opencv.core.Mat;
-import org.opencv.core.MatOfKeyPoint;
+import org.opencv.core.CvType;
 import org.opencv.core.MatOfPoint;
-import org.opencv.core.Rect;
 import org.opencv.core.Scalar;
 import org.opencv.core.Size;
-import org.opencv.android.CameraBridgeViewBase;
-import org.opencv.android.CameraBridgeViewBase.CvCameraViewListener2;
-import org.opencv.features2d.ORB;
 import org.opencv.imgproc.Imgproc;
 
-import java.util.ArrayList;
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
-import java.util.List;
 
 public class MainActivity extends AppCompatActivity { //implements Camera.PreviewCallback {
 
@@ -76,8 +68,39 @@ public class MainActivity extends AppCompatActivity { //implements Camera.Previe
     String myCameraId;
     //Surface used for the preview process
     Surface myPreviewSurface;
+    private ObjLoader myMesh;
 
     final int CAMERA_PERMISSION_CODE = 1;
+
+    //
+    int MIN_MATCHES = 10;
+
+    Matcher.Algo algo = Matcher.Algo.ORB;
+    boolean firstFrame = true;
+    boolean drawMatches = false;
+    boolean drawBorder = true;
+
+    //Camera parameters
+    int imageRefSizeX = 5312;//5312 x 2988 #nb imgref was redim, we cannot use it
+    int imageRefSizeY = 2988;
+    double pixelSizeMm = 0.00112;
+    double focalLengthMm = 4.3;
+    double fpixel;// = focalLengthMm / pixelSizeMm
+    Mat K = null;
+    Matcher matcher = new Matcher();
+    Mat myImgRef;
+    //
+
+
+    Bitmap testref;
+    Handler uiHandler;
+    static {
+        if (!OpenCVLoader.initDebug()) {
+            // Handle initialization error
+            Log.e(MainActivity.class.getName(), "OpenCV could not be initialized");
+        }
+        //System.loadLibrary("opencv_java3");
+    }
 
     private final CameraDevice.StateCallback myStateCallback = new CameraDevice.StateCallback() {
         @Override
@@ -109,6 +132,7 @@ public class MainActivity extends AppCompatActivity { //implements Camera.Previe
 
     };
 
+    //Preview texture listener
     TextureView.SurfaceTextureListener textureListener = new TextureView.SurfaceTextureListener() {
         @Override
         public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
@@ -130,16 +154,136 @@ public class MainActivity extends AppCompatActivity { //implements Camera.Previe
         }
     };
 
+    //processing-purpose texture listener
     protected ImageReader.OnImageAvailableListener mOnImageAvailableListener = new ImageReader.OnImageAvailableListener() {
 
         @Override
         public void onImageAvailable(ImageReader reader) {
+            Log.i("yop", "yop");
             // get the newest frame
-//            Image image = reader.acquireNextImage();
+            Image image = reader.acquireLatestImage();
+
+            if (image == null) {
+                return;
+            }
+
+            //for jpeg image
+            ByteBuffer buffer = image.getPlanes()[0].getBuffer();
+            byte[] bytes = new byte[buffer.remaining()];
+            buffer.get(bytes);
+            Bitmap bitmap = BitmapFactory.decodeByteArray(bytes,0,bytes.length,null);
+            Mat frame = new Mat();
+            org.opencv.android.Utils.bitmapToMat(bitmap, frame);
+
+            //yuv ?
+//           Mat buf = new Mat(image.getHeight(), image.getWidth(), CvType.CV_8UC1);
+//           org.opencv.android.Utils.
+//           ByteBuffer buffer = image.getPlanes()[0].getBuffer();
+//           byte[] bytes = new byte[buffer.remaining()];
+//           buffer.get(bytes);
+//           buf.put(0, 0, bytes);
 //
-//            if (image == null) {
-//                return;
+//            Mat mat = Imgcodecs.imdecode(buf, Imgcodecs.IMREAD_COLOR);
+
+            if (firstFrame) {
+                //InputStream stream = getResources().openRawResource(R.raw.ref2corrigee);
+                Bitmap ref = BitmapFactory.decodeResource(getResources(), R.drawable.ref2corrigee);
+
+                myImgRef = new Mat();
+                org.opencv.android.Utils.bitmapToMat(bitmap, myImgRef);
+
+                matcher.computeReferenceImage(myImgRef, algo);
+                firstFrame = false;
+
+                //For video, resize pixel size accordingly
+                pixelSizeMm = pixelSizeMm * (imageRefSizeX / (double) image.getWidth());
+                fpixel = focalLengthMm / pixelSizeMm;
+                K = new Mat(3, 3, CvType.CV_64FC1);
+                K.put(0, 0, fpixel);
+                K.put(0, 1, 0.);
+                K.put(0, 2, image.getWidth() / 2.);
+                K.put(1, 0, 0);
+                K.put(1, 1, fpixel);
+                K.put(1, 2, image.getHeight() / 2.);
+                K.put(2, 0, 0);
+                K.put(2, 1, 0);
+                K.put(2, 2, 1);
+            }
+
+            Mat h = matcher.computeHomography(frame, algo);
+            //h.convertTo(h, CvType.CV_32F);
+
+            if (drawBorder) {
+                Size size = myImgRef.size();
+                MatOfPoint2f pts = new MatOfPoint2f(new Point(0f, 0f),
+                        new Point(0f, size.height - 1),
+                        new Point(size.width - 1, size.height - 1),
+                        new Point(size.width - 1, 0));
+                MatOfPoint2f dst = new MatOfPoint2f();
+                Core.perspectiveTransform(pts, dst, h);
+                //System.out.println(pts.toList());
+                //System.out.println(dst.toList());
+                MatOfPoint intDst = new MatOfPoint();
+                dst.convertTo(intDst, CvType.CV_32S);
+
+                //connect them with lines
+                Imgproc.polylines(frame, Arrays.asList(intDst), true, new Scalar(255), 3, Imgproc.LINE_AA);
+
+//			    HighGui.imshow("frame", frame);
+//				HighGui.waitKey(50);
+            }
+//
+            if (h != null) {
+                Mat proj = Utils.projectionMatrix(K, h);
+                frame = Utils.render(frame, myMesh, proj, myImgRef, true, null);
+                frame.convertTo(frame, CvType.CV_8UC3);
+                //HighGui.imshow("frame", frame);
+                //HighGui.waitKey(50);
+            }
+
+
+            ImageView view = MainActivity.this.findViewById(R.id.imageView);
+            Log.i("here", ""+testref);
+            view.setImageBitmap(testref);
+            view.postInvalidate();
+
+            // When a bitmap is downloaded you do:
+//            uiHandler.post(new Runnable() {
+//                public void run() {
+//                ImageView view = MainActivity.this.findViewById(R.id.imageView);
+//                System.out.println(testref);
+//                view.setImageBitmap(testref);
+//                view.invalidate();
+//                //    ref.recycle();
 //            }
+//            });
+
+
+//            Canvas canvas = view.getHolder().lockCanvas();
+//
+//            if (canvas != null)
+//            {
+//                //Bitmap toDisplay = Bitmap.createBitmap(frame.width(), frame.height(), Bitmap.Config.ARGB_8888);
+//                //org.opencv.android.Utils.matToBitmap(frame, bitmap);
+//
+//                if(bitmap != null)
+//                {
+//                    Paint paint = new Paint();
+//
+//                    //MemoryStream ms = new MemoryStream();
+//                    //currentBitmap.Compress(Bitmap.CompressFormat.Jpeg, 100, ms);
+//                    //byte[] bitmapData = ms.toArray();
+//                    //Bitmap bitmap = BitmapFactory.DecodeByteArray(bitmapData, 0, bitmapData.Length);
+//                    //Bitmap scaledBitmap = Bitmap.CreateScaledBitmap(bitmap, mPreview2.Width, mPreview2.Height, true);
+//
+//                    canvas.drawBitmap(ref, 0, 0, paint);
+//                    ref.recycle();
+//                    //scaledBitmap.Recycle();
+//                    //currentBitmap.Recycle();
+//                }
+//                view.getHolder().unlockCanvasAndPost(canvas);
+//            }
+
 //
 //            // print image format
 //            int format = reader.getImageFormat();
@@ -153,38 +297,145 @@ public class MainActivity extends AppCompatActivity { //implements Camera.Previe
 //            //byte[] bytes = new byte[buffer.remaining()];
 //
 //
-//            image.close();
+              image.close();
         }
     };
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        //ImageView view = findViewById(R.id.imageView);
+        //view.invalidate();
+    }
+
+    @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main);
+        setContentView(R.layout.activity_main_new);
         //Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
         //setSupportActionBar(toolbar);
 
-        FloatingActionButton fab = (FloatingActionButton) findViewById(R.id.fab);
-        fab.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                Snackbar.make(view, "Replace with your own action", Snackbar.LENGTH_LONG)
-                        .setAction("Action", null).show();
-            }
-        });
+//        FloatingActionButton fab = (FloatingActionButton) findViewById(R.id.fab);
+//        fab.setOnClickListener(new View.OnClickListener() {
+//            @Override
+//            public void onClick(View view) {
+//                Snackbar.make(view, "Replace with your own action", Snackbar.LENGTH_LONG)
+//                        .setAction("Action", null).show();
+//            }
+//        });
+
+        InputStream stream = getResources().openRawResource(R.raw.fox2);
+        BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8));
+        myMesh = new ObjLoader(reader, false);
 
         myImageWidth = 400;
         myImageHeight = 400;
 
+        uiHandler = new Handler();
+
+        BitmapFactory.Options o = new BitmapFactory.Options();
+        o.inScaled = false;
+
+        testref = BitmapFactory.decodeResource(getResources(), R.drawable.ref2corrigee, o);
         this.setupCamera();
 
-        TextureView view = findViewById(R.id.textureView);
+        TextureView view = findViewById(R.id.textureView2);
         view.setSurfaceTextureListener(textureListener);
 
-//        if(ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_DENIED)
-//            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION_CODE);
-//        else
-//            openCamera();
+
+        //
+        ImageView view2 = this.findViewById(R.id.imageView2);
+        Log.i("here", ""+testref);
+        view2.setImageBitmap(testref);
+        view2.invalidate();
+
+        Bitmap image = BitmapFactory.decodeResource(getResources(), R.drawable.frametest, o);
+        //ByteBuffer buffer = image.getPlanes()[0].getBuffer();
+        //byte[] bytes = new byte[buffer.remaining()];
+        //buffer.get(bytes);
+        //Bitmap bitmap = BitmapFactory.decodeByteArray(bytes,0,bytes.length,null);
+        Mat frame = new Mat();//
+        org.opencv.android.Utils.bitmapToMat(image, frame);
+
+        //yuv ?
+//           Mat buf = new Mat(image.getHeight(), image.getWidth(), CvType.CV_8UC1);
+//           org.opencv.android.Utils.
+//           ByteBuffer buffer = image.getPlanes()[0].getBuffer();
+//           byte[] bytes = new byte[buffer.remaining()];
+//           buffer.get(bytes);
+//           buf.put(0, 0, bytes);
+//
+//            Mat mat = Imgcodecs.imdecode(buf, Imgcodecs.IMREAD_COLOR);
+
+        if (firstFrame) {
+            //InputStream stream = getResources().openRawResource(R.raw.ref2corrigee);
+
+            Bitmap ref = BitmapFactory.decodeResource(getResources(), R.drawable.ref2corrigee, o);
+
+            myImgRef = new Mat();
+            org.opencv.android.Utils.bitmapToMat(testref, myImgRef);
+
+            matcher.computeReferenceImage(myImgRef, algo);
+            firstFrame = false;
+
+            //For video, resize pixel size accordingly
+            pixelSizeMm = pixelSizeMm * (imageRefSizeX / (double) image.getWidth());
+            fpixel = focalLengthMm / pixelSizeMm;
+            K = new Mat(3, 3, CvType.CV_64FC1);
+            K.put(0, 0, fpixel);
+            K.put(0, 1, 0.);
+            K.put(0, 2, image.getWidth() / 2.);
+            K.put(1, 0, 0);
+            K.put(1, 1, fpixel);
+            K.put(1, 2, image.getHeight() / 2.);
+            K.put(2, 0, 0);
+            K.put(2, 1, 0);
+            K.put(2, 2, 1);
+        }
+
+        Mat h = matcher.computeHomography(frame, algo);
+        //h.convertTo(h, CvType.CV_32F);
+
+        if (drawBorder) {
+            Size size = myImgRef.size();
+            MatOfPoint2f pts = new MatOfPoint2f(new Point(0f, 0f),
+                    new Point(0f, size.height - 1),
+                    new Point(size.width - 1, size.height - 1),
+                    new Point(size.width - 1, 0));
+            MatOfPoint2f dst = new MatOfPoint2f();
+            Core.perspectiveTransform(pts, dst, h);
+            //System.out.println(pts.toList());
+            //System.out.println(dst.toList());
+            MatOfPoint intDst = new MatOfPoint();
+            dst.convertTo(intDst, CvType.CV_32S);
+
+            //connect them with lines
+            Imgproc.polylines(frame, Arrays.asList(intDst), true, new Scalar(255, 0, 0, 255), 3, Imgproc.LINE_AA);
+
+//			    HighGui.imshow("frame", frame);
+//				HighGui.waitKey(50);
+        }
+//
+        if (h != null) {
+            Mat proj = Utils.projectionMatrix(K, h);
+            frame = Utils.render(frame, myMesh, proj, myImgRef, true, null);
+            frame.convertTo(frame, CvType.CV_8UC3);
+            //HighGui.imshow("frame", frame);
+            //HighGui.waitKey(50);
+
+            Bitmap res = Bitmap.createBitmap(frame.width(), frame.height(), Bitmap.Config.ARGB_8888);
+            org.opencv.android.Utils.matToBitmap(frame, res);
+            Log.i("here", ""+res);
+            view2.setImageBitmap(res);
+            view2.invalidate();
+            //res.recycle();
+        }
+
+
+
+
+
+
     }
 
     @Override
@@ -220,7 +471,7 @@ public class MainActivity extends AppCompatActivity { //implements Camera.Previe
         try {
             //SurfaceView view = this.findViewById(R.id.surfaceView3);
             //myPreviewSurface = view.getHolder().getSurface();
-            TextureView view = findViewById(R.id.textureView);
+            TextureView view = findViewById(R.id.textureView2);
             SurfaceTexture texture = view.getSurfaceTexture();
             // We configure the size of default buffer to be the size of camera preview we want.
             //texture.setDefaultBufferSize(mPreviewSize.getWidth(), mPreviewSize.getHeight());
@@ -232,7 +483,10 @@ public class MainActivity extends AppCompatActivity { //implements Camera.Previe
             final CaptureRequest.Builder previewRequestBuilder
                     = myCamera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
             previewRequestBuilder.addTarget(myPreviewSurface);//surface);
-            //myImageReader = ImageReader.newInstance(myImageWidth, myImageHeight, ImageFormat.YUV_420_888, 2);
+
+            myImageReader = ImageReader.newInstance(myImageWidth, myImageHeight, ImageFormat.JPEG, 2);//ImageFormat.YUV_420_888, 2);
+            myImageReader.setOnImageAvailableListener(mOnImageAvailableListener, null);
+            //previewRequestBuilder.addTarget(myImageReader.getSurface());
 
             // Here, we create a CameraCaptureSession for camera preview.
             myCamera.createCaptureSession(Arrays.asList(myPreviewSurface),//, myImageReader.getSurface()),
@@ -329,3 +583,101 @@ public class MainActivity extends AppCompatActivity { //implements Camera.Previe
     }
 }
 
+//https://stackoverflow.com/questions/12695232/using-native-functions-in-android-with-opencv/12699835#12699835
+//https://stackoverflow.com/questions/53277911/how-to-import-3d-model-obj-into-android-studio
+
+/*
+JNIEXPORT jstring JNICALL Java_com_neza_myrobot_JNIUtils_detectLane(
+            JNIEnv *env, jobject obj, jint srcWidth, jint srcHeight,
+            jobject srcBuffer, jobject dstSurface, jstring path, jint saveFile) {
+    char outStr[2000];
+
+    const char *str = env->GetStringUTFChars(path, NULL);
+    LOGE("bob path:%s saveFile=%d", str, saveFile);
+
+    uint8_t *srcLumaPtr = reinterpret_cast<uint8_t *>(env->GetDirectBufferAddress(srcBuffer));
+
+    if (srcLumaPtr == nullptr) {
+        LOGE("blit NULL pointer ERROR");
+        return NULL;
+    }
+
+    int dstWidth;
+    int dstHeight;
+
+    cv::Mat mYuv(srcHeight + srcHeight / 2, srcWidth, CV_8UC1, srcLumaPtr);
+
+    uint8_t *srcChromaUVInterleavedPtr = nullptr;
+    bool swapDstUV;
+
+    ANativeWindow *win = ANativeWindow_fromSurface(env, dstSurface);
+    ANativeWindow_acquire(win);
+
+    ANativeWindow_Buffer buf;
+
+    dstWidth = srcHeight;
+    dstHeight = srcWidth;
+
+    ANativeWindow_setBuffersGeometry(win, dstWidth, dstHeight, 0 );
+
+        if (int32_t err = ANativeWindow_lock(win, &buf, NULL)) {
+        LOGE("ANativeWindow_lock failed with error code %d\n", err);
+        ANativeWindow_release(win);
+        return NULL;
+        }
+
+        uint8_t *dstLumaPtr = reinterpret_cast<uint8_t *>(buf.bits);
+        Mat dstRgba(dstHeight, buf.stride, CV_8UC4,
+        dstLumaPtr);        // TextureView buffer, use stride as width
+        Mat srcRgba(srcHeight, srcWidth, CV_8UC4);
+        Mat flipRgba(dstHeight, dstWidth, CV_8UC4);
+
+        // convert YUV -> RGBA
+        cv::cvtColor(mYuv, srcRgba, CV_YUV2RGBA_NV21);
+
+        // Rotate 90 degree
+        cv::transpose(srcRgba, flipRgba);
+        cv::flip(flipRgba, flipRgba, 1);
+
+        #if 0
+        int ball_x;
+        int ball_y;
+        int ball_r;
+
+        ball_r = 0;
+
+        BallDetect(flipRgba, ball_x, ball_y, ball_r);
+        if( ball_r > 0)
+        LOGE("ball x:%d y:%d r:%d", ball_x, ball_y, ball_r);
+        else
+        LOGE("ball not detected");
+        #endif
+
+        LaneDetect(flipRgba, str, saveFile, outStr);
+
+        // copy to TextureView surface
+        uchar *dbuf;
+        uchar *sbuf;
+        dbuf = dstRgba.data;
+        sbuf = flipRgba.data;
+        int i;
+        for (i = 0; i < flipRgba.rows; i++) {
+        dbuf = dstRgba.data + i * buf.stride * 4;
+        memcpy(dbuf, sbuf, flipRgba.cols * 4);
+        sbuf += flipRgba.cols * 4;
+        }
+
+        // Draw some rectangles
+        Point p1(100, 100);
+        Point p2(300, 300);
+        cv::line(dstRgba, Point(dstWidth/2, 0), Point(dstWidth/2, dstHeight-1),Scalar(255, 255, 255));
+        cv::line(dstRgba, Point(0,dstHeight-1), Point(dstWidth-1, dstHeight-1),Scalar(255,255,255 ));
+
+        LOGE("bob dstWidth=%d height=%d", dstWidth, dstHeight);
+        ANativeWindow_unlockAndPost(win);
+        ANativeWindow_release(win);
+
+        return env->NewStringUTF(outStr);
+        }
+        }
+ */
