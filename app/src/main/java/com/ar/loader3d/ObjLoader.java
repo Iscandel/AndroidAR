@@ -82,7 +82,22 @@ public class ObjLoader {
     public ArrayList<Vector2<Double>> texcoords;
     public ArrayList<Face> faces;
 
-    public ObjLoader(String filename, boolean swapyz) {
+    public ObjLoader(String filename, boolean swapxyz) {
+        BufferedReader file = null;
+        try {
+            file = new BufferedReader(new FileReader(filename));
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        }
+
+        read(file, swapxyz);
+    }
+
+    public ObjLoader(BufferedReader reader, boolean swapxyz) {
+        read(reader, swapxyz);
+    }
+
+    protected void read(BufferedReader file, boolean swapyz) {
         //Loads a Wavefront OBJ file.
         vertices = new ArrayList<Vector3<Double>>();
         normals = new ArrayList<Vector3<Double>>();
@@ -90,12 +105,6 @@ public class ObjLoader {
         faces = new ArrayList<Face>();
 
         //material = None
-        BufferedReader file = null;
-        try {
-            file = new BufferedReader(new FileReader(filename));
-        } catch (FileNotFoundException e) {
-            e.printStackTrace();
-        }
         String line = null;
 
         while (true) {

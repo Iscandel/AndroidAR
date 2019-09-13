@@ -18,6 +18,13 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content" />
 
+        <ImageView
+            android:id="@+id/imageView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            app:srcCompat="@drawable/ref2corrigee"
+            android:contentDescription="TODO" />
+
     </LinearLayout>
 
     <android.support.design.widget.FloatingActionButton

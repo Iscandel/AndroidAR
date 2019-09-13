@@ -27,7 +27,7 @@ public class Utils {
     static public Mat render(Mat image, ObjLoader obj, Mat projection, Mat model, boolean color, Mat texture) {
         ArrayList<ObjLoader.Vector3<Double>> vertices = obj.vertices;
         ArrayList<ObjLoader.Vector2<Double>> texcoords = obj.texcoords;
-        float scaleFactor = 180;
+        float scaleFactor = 8;//180;
         float[] scaleMatrix = {scaleFactor, scaleFactor, scaleFactor};
 
         //Mat scaleMatrix = new Mat();
@@ -57,8 +57,8 @@ public class Utils {
             Core.perspectiveTransform(points, dest, projection);
             MatOfPoint imagePts = new MatOfPoint();
             dest.convertTo(imagePts, CvType.CV_32S);
-            if (!color)
-                Imgproc.fillConvexPoly(image, imagePts, new Scalar(100, 100, 100));
+            if (color)
+                Imgproc.fillConvexPoly(image, imagePts, new Scalar(250, 60, 15, 255));
                 //System.out.println(imagePts.toList());
             else {
                 //Following, ie texture mapping, is mainly inspired from
@@ -163,7 +163,7 @@ public class Utils {
      * @param homography       Computed homography
      * @return The computed 3D projection matrix
      */
-    static Mat projectionMatrix(Mat cameraParameters, Mat homography) {
+    static public Mat projectionMatrix(Mat cameraParameters, Mat homography) {
         //From the camera calibration matrix and the estimated homography
         //compute the 3D projection matrix
 

@@ -159,7 +159,6 @@ public class MainActivity extends AppCompatActivity { //implements Camera.Previe
 
         @Override
         public void onImageAvailable(ImageReader reader) {
-            Log.i("yop", "yop");
             // get the newest frame
             Image image = reader.acquireLatestImage();
 
@@ -172,7 +171,7 @@ public class MainActivity extends AppCompatActivity { //implements Camera.Previe
             byte[] bytes = new byte[buffer.remaining()];
             buffer.get(bytes);
             Bitmap bitmap = BitmapFactory.decodeByteArray(bytes,0,bytes.length,null);
-            Mat frame = new Mat();
+            Mat frame = new Mat();//
             org.opencv.android.Utils.bitmapToMat(bitmap, frame);
 
             //yuv ?
@@ -184,27 +183,36 @@ public class MainActivity extends AppCompatActivity { //implements Camera.Previe
 //           buf.put(0, 0, bytes);
 //
 //            Mat mat = Imgcodecs.imdecode(buf, Imgcodecs.IMREAD_COLOR);
+            BitmapFactory.Options o = new BitmapFactory.Options();
+            o.inScaled = false;
+
+            //Bitmap b = BitmapFactory.decodeResource(getResources(), R.drawable.frametest, o);
+
+
+            //org.opencv.android.Utils.bitmapToMat(b, frame);
+            //b.recycle();
 
             if (firstFrame) {
                 //InputStream stream = getResources().openRawResource(R.raw.ref2corrigee);
-                Bitmap ref = BitmapFactory.decodeResource(getResources(), R.drawable.ref2corrigee);
+
+                Bitmap ref = BitmapFactory.decodeResource(getResources(), R.drawable.ref2corrigee, o);
 
                 myImgRef = new Mat();
-                org.opencv.android.Utils.bitmapToMat(bitmap, myImgRef);
+                org.opencv.android.Utils.bitmapToMat(testref, myImgRef);
 
                 matcher.computeReferenceImage(myImgRef, algo);
                 firstFrame = false;
 
                 //For video, resize pixel size accordingly
-                pixelSizeMm = pixelSizeMm * (imageRefSizeX / (double) image.getWidth());
+                pixelSizeMm = pixelSizeMm * (imageRefSizeX / (double) frame.width());
                 fpixel = focalLengthMm / pixelSizeMm;
                 K = new Mat(3, 3, CvType.CV_64FC1);
                 K.put(0, 0, fpixel);
                 K.put(0, 1, 0.);
-                K.put(0, 2, image.getWidth() / 2.);
+                K.put(0, 2, frame.width() / 2.);
                 K.put(1, 0, 0);
                 K.put(1, 1, fpixel);
-                K.put(1, 2, image.getHeight() / 2.);
+                K.put(1, 2, frame.height() / 2.);
                 K.put(2, 0, 0);
                 K.put(2, 1, 0);
                 K.put(2, 2, 1);
@@ -212,40 +220,40 @@ public class MainActivity extends AppCompatActivity { //implements Camera.Previe
 
             Mat h = matcher.computeHomography(frame, algo);
             //h.convertTo(h, CvType.CV_32F);
+            if (h != null && !h.empty()) {
+                if (drawBorder) {
+                    Size size = myImgRef.size();
+                    MatOfPoint2f pts = new MatOfPoint2f(new Point(0f, 0f),
+                            new Point(0f, size.height - 1),
+                            new Point(size.width - 1, size.height - 1),
+                            new Point(size.width - 1, 0));
+                    MatOfPoint2f dst = new MatOfPoint2f();
 
-            if (drawBorder) {
-                Size size = myImgRef.size();
-                MatOfPoint2f pts = new MatOfPoint2f(new Point(0f, 0f),
-                        new Point(0f, size.height - 1),
-                        new Point(size.width - 1, size.height - 1),
-                        new Point(size.width - 1, 0));
-                MatOfPoint2f dst = new MatOfPoint2f();
-                Core.perspectiveTransform(pts, dst, h);
-                //System.out.println(pts.toList());
-                //System.out.println(dst.toList());
-                MatOfPoint intDst = new MatOfPoint();
-                dst.convertTo(intDst, CvType.CV_32S);
+                    Log.i("h=", h.dump());
+                    Core.perspectiveTransform(pts, dst, h);
+                    Log.i("dst=", dst.dump());
+                    MatOfPoint intDst = new MatOfPoint();
+                    dst.convertTo(intDst, CvType.CV_32S);
 
-                //connect them with lines
-                Imgproc.polylines(frame, Arrays.asList(intDst), true, new Scalar(255), 3, Imgproc.LINE_AA);
+                    //connect them with lines
+                    Imgproc.polylines(frame, Arrays.asList(intDst), true, new Scalar(255, 0, 0, 255), 3, Imgproc.LINE_AA);
+                }
 
-//			    HighGui.imshow("frame", frame);
-//				HighGui.waitKey(50);
-            }
-//
-            if (h != null) {
                 Mat proj = Utils.projectionMatrix(K, h);
                 frame = Utils.render(frame, myMesh, proj, myImgRef, true, null);
                 frame.convertTo(frame, CvType.CV_8UC3);
-                //HighGui.imshow("frame", frame);
-                //HighGui.waitKey(50);
+
+                //res.recycle();
             }
 
+            ImageView view2 = MainActivity.this.findViewById(R.id.imageView2);
+            Bitmap res = Bitmap.createBitmap(frame.width(), frame.height(), Bitmap.Config.ARGB_8888);
+            org.opencv.android.Utils.matToBitmap(frame, res);
 
-            ImageView view = MainActivity.this.findViewById(R.id.imageView);
-            Log.i("here", ""+testref);
-            view.setImageBitmap(testref);
-            view.postInvalidate();
+            view2.setImageBitmap(null);
+            view2.setImageBitmap(res);
+            view2.invalidate();
+            //res.recycle();
 
             // When a bitmap is downloaded you do:
 //            uiHandler.post(new Runnable() {
@@ -328,8 +336,11 @@ public class MainActivity extends AppCompatActivity { //implements Camera.Previe
         BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8));
         myMesh = new ObjLoader(reader, false);
 
-        myImageWidth = 400;
-        myImageHeight = 400;
+        //ImageView view2 = MainActivity.this.findViewById(R.id.imageView2);
+
+        myImageWidth = 640;//1328;//5312;//view2.getMaxWidth();
+        myImageHeight = 480;//747;//2988;//view2.getMaxHeight();
+        //Log.i("here", view2.getMaxWidth() + " " + view2.getMaxWidth());
 
         uiHandler = new Handler();
 
@@ -344,92 +355,18 @@ public class MainActivity extends AppCompatActivity { //implements Camera.Previe
 
 
         //
+
+
+        //
+
+        //
         ImageView view2 = this.findViewById(R.id.imageView2);
         Log.i("here", ""+testref);
         view2.setImageBitmap(testref);
         view2.invalidate();
 
-        Bitmap image = BitmapFactory.decodeResource(getResources(), R.drawable.frametest, o);
-        //ByteBuffer buffer = image.getPlanes()[0].getBuffer();
-        //byte[] bytes = new byte[buffer.remaining()];
-        //buffer.get(bytes);
-        //Bitmap bitmap = BitmapFactory.decodeByteArray(bytes,0,bytes.length,null);
-        Mat frame = new Mat();//
-        org.opencv.android.Utils.bitmapToMat(image, frame);
+        //Bitmap image = BitmapFactory.decodeResource(getResources(), R.drawable.frametest, o);
 
-        //yuv ?
-//           Mat buf = new Mat(image.getHeight(), image.getWidth(), CvType.CV_8UC1);
-//           org.opencv.android.Utils.
-//           ByteBuffer buffer = image.getPlanes()[0].getBuffer();
-//           byte[] bytes = new byte[buffer.remaining()];
-//           buffer.get(bytes);
-//           buf.put(0, 0, bytes);
-//
-//            Mat mat = Imgcodecs.imdecode(buf, Imgcodecs.IMREAD_COLOR);
-
-        if (firstFrame) {
-            //InputStream stream = getResources().openRawResource(R.raw.ref2corrigee);
-
-            Bitmap ref = BitmapFactory.decodeResource(getResources(), R.drawable.ref2corrigee, o);
-
-            myImgRef = new Mat();
-            org.opencv.android.Utils.bitmapToMat(testref, myImgRef);
-
-            matcher.computeReferenceImage(myImgRef, algo);
-            firstFrame = false;
-
-            //For video, resize pixel size accordingly
-            pixelSizeMm = pixelSizeMm * (imageRefSizeX / (double) image.getWidth());
-            fpixel = focalLengthMm / pixelSizeMm;
-            K = new Mat(3, 3, CvType.CV_64FC1);
-            K.put(0, 0, fpixel);
-            K.put(0, 1, 0.);
-            K.put(0, 2, image.getWidth() / 2.);
-            K.put(1, 0, 0);
-            K.put(1, 1, fpixel);
-            K.put(1, 2, image.getHeight() / 2.);
-            K.put(2, 0, 0);
-            K.put(2, 1, 0);
-            K.put(2, 2, 1);
-        }
-
-        Mat h = matcher.computeHomography(frame, algo);
-        //h.convertTo(h, CvType.CV_32F);
-
-        if (drawBorder) {
-            Size size = myImgRef.size();
-            MatOfPoint2f pts = new MatOfPoint2f(new Point(0f, 0f),
-                    new Point(0f, size.height - 1),
-                    new Point(size.width - 1, size.height - 1),
-                    new Point(size.width - 1, 0));
-            MatOfPoint2f dst = new MatOfPoint2f();
-            Core.perspectiveTransform(pts, dst, h);
-            //System.out.println(pts.toList());
-            //System.out.println(dst.toList());
-            MatOfPoint intDst = new MatOfPoint();
-            dst.convertTo(intDst, CvType.CV_32S);
-
-            //connect them with lines
-            Imgproc.polylines(frame, Arrays.asList(intDst), true, new Scalar(255, 0, 0, 255), 3, Imgproc.LINE_AA);
-
-//			    HighGui.imshow("frame", frame);
-//				HighGui.waitKey(50);
-        }
-//
-        if (h != null) {
-            Mat proj = Utils.projectionMatrix(K, h);
-            frame = Utils.render(frame, myMesh, proj, myImgRef, true, null);
-            frame.convertTo(frame, CvType.CV_8UC3);
-            //HighGui.imshow("frame", frame);
-            //HighGui.waitKey(50);
-
-            Bitmap res = Bitmap.createBitmap(frame.width(), frame.height(), Bitmap.Config.ARGB_8888);
-            org.opencv.android.Utils.matToBitmap(frame, res);
-            Log.i("here", ""+res);
-            view2.setImageBitmap(res);
-            view2.invalidate();
-            //res.recycle();
-        }
 
 
 
@@ -482,14 +419,25 @@ public class MainActivity extends AppCompatActivity { //implements Camera.Previe
             // We set up a CaptureRequest.Builder with the output Surface.
             final CaptureRequest.Builder previewRequestBuilder
                     = myCamera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
-            previewRequestBuilder.addTarget(myPreviewSurface);//surface);
+            //previewRequestBuilder.addTarget(myPreviewSurface);//surface);
+
+			//StreamConfigurationMap map = characteristics.get(
+            //            CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+            //    if (map == null) {
+            //        continue;
+            //    }
+			//
+            //    // For still image captures, we use the largest available size.
+            //    Size largest = Collections.max(
+            //            Arrays.asList(map.getOutputSizes(ImageFormat.JPEG)),
+            //            new CompareSizesByArea());
 
             myImageReader = ImageReader.newInstance(myImageWidth, myImageHeight, ImageFormat.JPEG, 2);//ImageFormat.YUV_420_888, 2);
             myImageReader.setOnImageAvailableListener(mOnImageAvailableListener, null);
-            //previewRequestBuilder.addTarget(myImageReader.getSurface());
+            previewRequestBuilder.addTarget(myImageReader.getSurface());
 
             // Here, we create a CameraCaptureSession for camera preview.
-            myCamera.createCaptureSession(Arrays.asList(myPreviewSurface),//, myImageReader.getSurface()),
+            myCamera.createCaptureSession(Arrays.asList(/*myPreviewSurface,*/ myImageReader.getSurface()),
                     new CameraCaptureSession.StateCallback() {
 
                         @Override

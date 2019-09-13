@@ -1,5 +1,7 @@
 package com.ar.core;
 
+import android.util.Log;
+
 import com.ar.loader3d.ObjLoader;
 
 import java.util.ArrayList;
@@ -172,6 +174,9 @@ public class Matcher {
         MatOfKeyPoint kpFrame = new MatOfKeyPoint();
         Mat descFrame = new Mat();
         detector(image, algo, kpFrame, descFrame);
+        //Log.i("lol", ""+descFrame);
+        if(descFrame.rows() < 2)
+            return null;
         List<DMatch> matches = match(myDescRef, descFrame, algo);
         Mat homography = null;
 
@@ -205,7 +210,7 @@ public class Matcher {
         System.out.println(Core.NATIVE_LIBRARY_NAME);
         //System.load( );
         //System.load( );
-        Mat imgRef = Imgcodecs.imread("./data/ref2Corrigee.jpg", Imgcodecs.IMREAD_UNCHANGED);//, Imgcodecs.IMREAD_GRAYSCALE);//org.opencv.imgcodecs.Imgcodecs.IMREAD_UNCHANGED );
+        Mat imgRef = Imgcodecs.imread("./data/ref2corrigee.jpg", Imgcodecs.IMREAD_UNCHANGED);//, Imgcodecs.IMREAD_GRAYSCALE);//org.opencv.imgcodecs.Imgcodecs.IMREAD_UNCHANGED );
         VideoCapture vid = new VideoCapture("./data/20181009_140438.mp4");
 //		fourcc = cv2.VideoWriter_fourcc('M', 'J', 'P', 'G');
         Mat texture = Imgcodecs.imread("./data/Annaleiva.jpg", Imgcodecs.IMREAD_UNCHANGED);
