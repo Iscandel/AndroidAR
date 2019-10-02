@@ -31,12 +31,12 @@ import org.opencv.videoio.VideoCapture;
 import com.ar.loader3d.ObjLoader;
 
 public class Matcher {
-    public enum Algo {ORB, SIFT}
+    public enum Algo {ORB, SIFT};
 
-    ;
     public final float LOWE_RATIO = 0.7f;
     public final int MIN_MATCHES = 10;
 
+    protected int myORBnMatch = 100;
     protected MatOfKeyPoint myKpRef;
     protected Mat myDescRef;
 
@@ -132,7 +132,13 @@ public class Matcher {
                 }
             });
 
-            return matchArray;
+            ArrayList<DMatch> nMatchArray = new ArrayList<>(myORBnMatch);
+            if(myORBnMatch < matchArray.size()) {
+                for(int i = 0; i< myORBnMatch; i++)
+                    nMatchArray.add(matchArray.get(i));
+                return nMatchArray;
+            } else
+                return matchArray;
         } else {
             List<MatOfDMatch> matches = new ArrayList<>();
             BFMatcher bf = new BFMatcher();
@@ -199,7 +205,7 @@ public class Matcher {
             srcPoints.fromArray(tmpSrc);
             destPoints.fromArray(tmpDest);
 
-            homography = org.opencv.calib3d.Calib3d.findHomography(srcPoints, destPoints, org.opencv.calib3d.Calib3d.RANSAC);//,5.0)
+            homography = org.opencv.calib3d.Calib3d.findHomography(srcPoints, destPoints, org.opencv.calib3d.Calib3d.RANSAC,5.0);
             return homography;
         }
 

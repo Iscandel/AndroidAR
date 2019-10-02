@@ -51,6 +51,8 @@ import java.io.InputStreamReader;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
 
 public class MainActivity extends AppCompatActivity { //implements Camera.PreviewCallback {
 
@@ -136,10 +138,7 @@ public class MainActivity extends AppCompatActivity { //implements Camera.Previe
     TextureView.SurfaceTextureListener textureListener = new TextureView.SurfaceTextureListener() {
         @Override
         public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
-            if(ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_DENIED)
-                ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION_CODE);
-            else
-                openCamera();
+            askForPermissionAndOpenCamera();
         }
         @Override
         public void onSurfaceTextureSizeChanged(SurfaceTexture surface, int width, int height) {
@@ -171,6 +170,9 @@ public class MainActivity extends AppCompatActivity { //implements Camera.Previe
             byte[] bytes = new byte[buffer.remaining()];
             buffer.get(bytes);
             Bitmap bitmap = BitmapFactory.decodeByteArray(bytes,0,bytes.length,null);
+
+            image.close();
+
             Mat frame = new Mat();//
             org.opencv.android.Utils.bitmapToMat(bitmap, frame);
 
@@ -229,9 +231,9 @@ public class MainActivity extends AppCompatActivity { //implements Camera.Previe
                             new Point(size.width - 1, 0));
                     MatOfPoint2f dst = new MatOfPoint2f();
 
-                    Log.i("h=", h.dump());
+                    //Log.i("h=", h.dump());
                     Core.perspectiveTransform(pts, dst, h);
-                    Log.i("dst=", dst.dump());
+                    //Log.i("dst=", dst.dump());
                     MatOfPoint intDst = new MatOfPoint();
                     dst.convertTo(intDst, CvType.CV_32S);
 
@@ -305,7 +307,7 @@ public class MainActivity extends AppCompatActivity { //implements Camera.Previe
 //            //byte[] bytes = new byte[buffer.remaining()];
 //
 //
-              image.close();
+//              image.close();
         }
     };
 
@@ -350,9 +352,9 @@ public class MainActivity extends AppCompatActivity { //implements Camera.Previe
         testref = BitmapFactory.decodeResource(getResources(), R.drawable.ref2corrigee, o);
         this.setupCamera();
 
-        TextureView view = findViewById(R.id.textureView2);
-        view.setSurfaceTextureListener(textureListener);
-
+        //TextureView view = findViewById(R.id.textureView2);
+        //view.setSurfaceTextureListener(textureListener);
+        askForPermissionAndOpenCamera();
 
         //
 
@@ -402,37 +404,56 @@ public class MainActivity extends AppCompatActivity { //implements Camera.Previe
 //
 //    }
 
+    public void askForPermissionAndOpenCamera() {
+        if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_DENIED)
+            ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION_CODE);
+        else
+            openCamera();
+    }
+
     //=========================================================================
     ///////////////////////////////////////////////////////////////////////////
     private void createCameraPreviewSession() {
         try {
             //SurfaceView view = this.findViewById(R.id.surfaceView3);
             //myPreviewSurface = view.getHolder().getSurface();
-            TextureView view = findViewById(R.id.textureView2);
-            SurfaceTexture texture = view.getSurfaceTexture();
+
+            //TextureView view = findViewById(R.id.textureView2);
+            //SurfaceTexture texture = view.getSurfaceTexture();
             // We configure the size of default buffer to be the size of camera preview we want.
             //texture.setDefaultBufferSize(mPreviewSize.getWidth(), mPreviewSize.getHeight());
-            assert texture != null;
+            //assert texture != null;
             //Output surface for the preview
-            myPreviewSurface = new Surface(texture);
+            //myPreviewSurface = new Surface(texture);
 
             // We set up a CaptureRequest.Builder with the output Surface.
             final CaptureRequest.Builder previewRequestBuilder
                     = myCamera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
             //previewRequestBuilder.addTarget(myPreviewSurface);//surface);
 
-			//StreamConfigurationMap map = characteristics.get(
-            //            CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
-            //    if (map == null) {
-            //        continue;
-            //    }
-			//
-            //    // For still image captures, we use the largest available size.
-            //    Size largest = Collections.max(
-            //            Arrays.asList(map.getOutputSizes(ImageFormat.JPEG)),
-            //            new CompareSizesByArea());
+            CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
+            CameraCharacteristics characteristics
+                    = manager.getCameraCharacteristics(myCameraId);
 
-            myImageReader = ImageReader.newInstance(myImageWidth, myImageHeight, ImageFormat.JPEG, 2);//ImageFormat.YUV_420_888, 2);
+            // We don't use a front facing camera in this sample.
+            Integer facing = characteristics.get(CameraCharacteristics.LENS_FACING);
+            if (facing != null && facing == CameraCharacteristics.LENS_FACING_FRONT) {
+                return;
+            }
+
+            StreamConfigurationMap map = characteristics.get(
+                        CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+                if (map == null) {
+                    return;
+                }
+
+                // For still image captures, we use the largest available size.
+                android.util.Size largest = Collections.max(
+                        Arrays.asList(map.getOutputSizes(ImageFormat.JPEG)),
+                        new CompareSizesByArea());
+
+            //myImageReader = ImageReader.newInstance(largest.getWidth(), largest.getHeight(), ImageFormat.JPEG, 1);//myImageWidth, myImageHeight, ImageFormat.JPEG, 1);//ImageFormat.YUV_420_888, 2);
+            myImageReader = ImageReader.newInstance(myImageWidth, myImageHeight, ImageFormat.JPEG, 1);
             myImageReader.setOnImageAvailableListener(mOnImageAvailableListener, null);
             previewRequestBuilder.addTarget(myImageReader.getSurface());
 
@@ -528,6 +549,17 @@ public class MainActivity extends AppCompatActivity { //implements Camera.Previe
                     finish();
                 }
         }
+    }
+
+    static class CompareSizesByArea implements Comparator<android.util.Size> {
+
+        @Override
+        public int compare(android.util.Size lhs, android.util.Size rhs) {
+            // We cast here to ensure the multiplications won't overflow
+            return Long.signum((long) lhs.getWidth() * lhs.getHeight() -
+                    (long) rhs.getWidth() * rhs.getHeight());
+        }
+
     }
 }
 
