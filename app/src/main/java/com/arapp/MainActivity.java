@@ -27,6 +27,7 @@ import android.view.Menu;
 import android.view.MenuItem;
 import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraCaptureSession;
+import android.view.WindowManager;
 import android.widget.ImageView;
 import android.widget.Toast;
 
@@ -34,6 +35,9 @@ import com.ar.core.Matcher;
 import com.ar.core.Utils;
 import com.ar.loader3d.ObjLoader;
 
+import org.opencv.android.BaseLoaderCallback;
+import org.opencv.android.CameraBridgeViewBase;
+import org.opencv.android.LoaderCallbackInterface;
 import org.opencv.android.OpenCVLoader;
 import org.opencv.core.MatOfPoint2f;
 import org.opencv.core.Point;
@@ -54,8 +58,9 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 
-public class MainActivity extends AppCompatActivity { //implements Camera.PreviewCallback {
 
+public class MainActivity extends AppCompatActivity implements CameraBridgeViewBase.CvCameraViewListener2 {
+    private static final String TAG = "OCVSample::Activity";
     //Manager for all available cameras of the device
     private CameraManager cameraManager;
     //Camera device
@@ -89,94 +94,136 @@ public class MainActivity extends AppCompatActivity { //implements Camera.Previe
     double focalLengthMm = 4.3;
     double fpixel;// = focalLengthMm / pixelSizeMm
     Mat K = null;
-    Matcher matcher = new Matcher();
+    Matcher matcher;
     Mat myImgRef;
     //
 
 
     Bitmap testref;
     Handler uiHandler;
-    static {
-        if (!OpenCVLoader.initDebug()) {
-            // Handle initialization error
-            Log.e(MainActivity.class.getName(), "OpenCV could not be initialized");
+
+    private CameraBridgeViewBase mOpenCvCameraView;
+
+//    static {
+//        if (!OpenCVLoader.initDebug()) {
+//            Log.d(TAG, "Internal OpenCV library not found. Using OpenCV Manager for initialization");
+//            //OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION, this, mLoaderCallback);
+//            System.loadLibrary("opencv_java4");
+//        } else {
+//            Log.d(TAG, "OpenCV library found inside package. Using it!");
+//            //mLoaderCallback.onManagerConnected(LoaderCallbackInterface.SUCCESS);
+//        }
+//    }
+
+    private BaseLoaderCallback mLoaderCallback = new BaseLoaderCallback(this) {
+        @Override
+        public void onManagerConnected(int status) {
+            switch (status) {
+                case LoaderCallbackInterface.SUCCESS: {
+                    Log.i(TAG, "OpenCV loaded successfully");
+
+                    // Load native library after(!) OpenCV initialization
+                    //System.loadLibrary("mixed_sample");
+                    matcher = new Matcher();
+                    mOpenCvCameraView.enableView();
+                    mOpenCvCameraView.enableFpsMeter();
+                }
+                break;
+                default: {
+                    super.onManagerConnected(status);
+                }
+                break;
+            }
         }
-        //System.loadLibrary("opencv_java3");
+    };
+
+
+
+    /**
+     * Called when the activity is first created.
+     */
+    @Override
+    public void onCreate(Bundle savedInstanceState) {
+        Log.i(TAG, "called onCreate");
+        super.onCreate(savedInstanceState);
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+
+        setContentView(R.layout.activity_main_new);
+
+
+        mOpenCvCameraView = (CameraBridgeViewBase) findViewById(R.id.imageView2);
+        mOpenCvCameraView.setVisibility(CameraBridgeViewBase.VISIBLE);
+        mOpenCvCameraView.setCvCameraViewListener(this);
+//        if (!OpenCVLoader.initDebug()) {
+//            Log.d(TAG, "Internal OpenCV library not found. Using OpenCV Manager for initialization");
+//            OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION_3_0_0, this, mLoaderCallback);
+//        } else {
+//            Log.d(TAG, "OpenCV library found inside package. Using it!");
+//            mLoaderCallback.onManagerConnected(LoaderCallbackInterface.SUCCESS);
+//        }
+//        matcher = new Matcher();
+
+        InputStream stream = getResources().openRawResource(R.raw.fox2);
+        BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8));
+        myMesh = new ObjLoader(reader, false);
+
+        askForCameraPermission();
     }
 
-    private final CameraDevice.StateCallback myStateCallback = new CameraDevice.StateCallback() {
-        @Override
-        public void onOpened(@NonNull CameraDevice cameraDevice) {
-            // This method is called when the camera is opened.  We start camera preview here.
-            //mCameraOpenCloseLock.release();
-            myCamera = cameraDevice;
-            createCameraPreviewSession();
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+//        Log.i(TAG, "called onCreateOptionsMenu");
+//        mItemPreviewRGBA = menu.add("Preview RGBA");
+//        mItemPreviewGray = menu.add("Preview GRAY");
+//        mItemPreviewCanny = menu.add("Canny");
+//        mItemPreviewFeatures = menu.add("Find features");
+        return true;
+    }
+
+    @Override
+    public void onPause() {
+        super.onPause();
+        if (mOpenCvCameraView != null)
+            mOpenCvCameraView.disableView();
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        if (!OpenCVLoader.initDebug()) {
+            Log.d(TAG, "Internal OpenCV library not found. Using OpenCV Manager for initialization");
+            OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION, this, mLoaderCallback);
+        } else {
+            Log.d(TAG, "OpenCV library found inside package. Using it!");
+            mLoaderCallback.onManagerConnected(LoaderCallbackInterface.SUCCESS);
         }
+        matcher = new Matcher();
+        //mOpenCvCameraView.enableView();
+    }
 
-        @Override
-        public void onDisconnected(@NonNull CameraDevice cameraDevice) {
-            //mCameraOpenCloseLock.release();
-            cameraDevice.close();
-            myCamera = null;
-        }
+    public void onDestroy() {
+        super.onDestroy();
+        if (mOpenCvCameraView != null)
+            mOpenCvCameraView.disableView();
+    }
 
-        @Override
-        public void onError(@NonNull CameraDevice cameraDevice, int error) {
-            //mCameraOpenCloseLock.release();
-            cameraDevice.close();
-            myCamera = null;
-            MainActivity.this.finish();
-            //Activity activity = getActivity();
-            //if (null != activity) {
-            //    this.finish();
-            //}
-        }
+    public void onCameraViewStarted(int width, int height) {
+//        mRgba = new Mat(height, width, CvType.CV_8UC4);
+//        mIntermediateMat = new Mat(height, width, CvType.CV_8UC4);
+//        mGray = new Mat(height, width, CvType.CV_8UC1);
+    }
 
-    };
+    public void onCameraViewStopped() {
+//        mRgba.release();
+//        mGray.release();
+//        mIntermediateMat.release();
+    }
 
-    //Preview texture listener
-    TextureView.SurfaceTextureListener textureListener = new TextureView.SurfaceTextureListener() {
-        @Override
-        public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
-            askForPermissionAndOpenCamera();
-        }
-        @Override
-        public void onSurfaceTextureSizeChanged(SurfaceTexture surface, int width, int height) {
-            // Transform you image captured size according to the surface width and height
-        }
-        @Override
-        public boolean onSurfaceTextureDestroyed(SurfaceTexture surface) {
-            return false;
-        }
-        @Override
-        public void onSurfaceTextureUpdated(SurfaceTexture surface) {
-        }
-    };
+    public Mat onCameraFrame(CameraBridgeViewBase.CvCameraViewFrame inputFrame) {
+        Mat frame = inputFrame.rgba();
+        //org.opencv.imgproc.Imgproc.cvtColor(frame, frame, Imgproc.COLOR_BGR2GRAY);
 
-    //processing-purpose texture listener
-    protected ImageReader.OnImageAvailableListener mOnImageAvailableListener = new ImageReader.OnImageAvailableListener() {
-
-        @Override
-        public void onImageAvailable(ImageReader reader) {
-            // get the newest frame
-            Image image = reader.acquireLatestImage();
-
-            if (image == null) {
-                return;
-            }
-
-            //for jpeg image
-            ByteBuffer buffer = image.getPlanes()[0].getBuffer();
-            byte[] bytes = new byte[buffer.remaining()];
-            buffer.get(bytes);
-            Bitmap bitmap = BitmapFactory.decodeByteArray(bytes,0,bytes.length,null);
-
-            image.close();
-
-            Mat frame = new Mat();//
-            org.opencv.android.Utils.bitmapToMat(bitmap, frame);
-
-            //yuv ?
+        //yuv ?
 //           Mat buf = new Mat(image.getHeight(), image.getWidth(), CvType.CV_8UC1);
 //           org.opencv.android.Utils.
 //           ByteBuffer buffer = image.getPlanes()[0].getBuffer();
@@ -185,383 +232,624 @@ public class MainActivity extends AppCompatActivity { //implements Camera.Previe
 //           buf.put(0, 0, bytes);
 //
 //            Mat mat = Imgcodecs.imdecode(buf, Imgcodecs.IMREAD_COLOR);
-            BitmapFactory.Options o = new BitmapFactory.Options();
-            o.inScaled = false;
-
-            //Bitmap b = BitmapFactory.decodeResource(getResources(), R.drawable.frametest, o);
-
-
-            //org.opencv.android.Utils.bitmapToMat(b, frame);
-            //b.recycle();
-
-            if (firstFrame) {
-                //InputStream stream = getResources().openRawResource(R.raw.ref2corrigee);
-
-                Bitmap ref = BitmapFactory.decodeResource(getResources(), R.drawable.ref2corrigee, o);
-
-                myImgRef = new Mat();
-                org.opencv.android.Utils.bitmapToMat(testref, myImgRef);
-
-                matcher.computeReferenceImage(myImgRef, algo);
-                firstFrame = false;
-
-                //For video, resize pixel size accordingly
-                pixelSizeMm = pixelSizeMm * (imageRefSizeX / (double) frame.width());
-                fpixel = focalLengthMm / pixelSizeMm;
-                K = new Mat(3, 3, CvType.CV_64FC1);
-                K.put(0, 0, fpixel);
-                K.put(0, 1, 0.);
-                K.put(0, 2, frame.width() / 2.);
-                K.put(1, 0, 0);
-                K.put(1, 1, fpixel);
-                K.put(1, 2, frame.height() / 2.);
-                K.put(2, 0, 0);
-                K.put(2, 1, 0);
-                K.put(2, 2, 1);
-            }
-
-            Mat h = matcher.computeHomography(frame, algo);
-            //h.convertTo(h, CvType.CV_32F);
-            if (h != null && !h.empty()) {
-                if (drawBorder) {
-                    Size size = myImgRef.size();
-                    MatOfPoint2f pts = new MatOfPoint2f(new Point(0f, 0f),
-                            new Point(0f, size.height - 1),
-                            new Point(size.width - 1, size.height - 1),
-                            new Point(size.width - 1, 0));
-                    MatOfPoint2f dst = new MatOfPoint2f();
-
-                    //Log.i("h=", h.dump());
-                    Core.perspectiveTransform(pts, dst, h);
-                    //Log.i("dst=", dst.dump());
-                    MatOfPoint intDst = new MatOfPoint();
-                    dst.convertTo(intDst, CvType.CV_32S);
-
-                    //connect them with lines
-                    Imgproc.polylines(frame, Arrays.asList(intDst), true, new Scalar(255, 0, 0, 255), 3, Imgproc.LINE_AA);
-                }
-
-                Mat proj = Utils.projectionMatrix(K, h);
-                frame = Utils.render(frame, myMesh, proj, myImgRef, true, null);
-                frame.convertTo(frame, CvType.CV_8UC3);
-
-                //res.recycle();
-            }
-
-            ImageView view2 = MainActivity.this.findViewById(R.id.imageView2);
-            Bitmap res = Bitmap.createBitmap(frame.width(), frame.height(), Bitmap.Config.ARGB_8888);
-            org.opencv.android.Utils.matToBitmap(frame, res);
-
-            view2.setImageBitmap(null);
-            view2.setImageBitmap(res);
-            view2.invalidate();
-            //res.recycle();
-
-            // When a bitmap is downloaded you do:
-//            uiHandler.post(new Runnable() {
-//                public void run() {
-//                ImageView view = MainActivity.this.findViewById(R.id.imageView);
-//                System.out.println(testref);
-//                view.setImageBitmap(testref);
-//                view.invalidate();
-//                //    ref.recycle();
-//            }
-//            });
-
-
-//            Canvas canvas = view.getHolder().lockCanvas();
-//
-//            if (canvas != null)
-//            {
-//                //Bitmap toDisplay = Bitmap.createBitmap(frame.width(), frame.height(), Bitmap.Config.ARGB_8888);
-//                //org.opencv.android.Utils.matToBitmap(frame, bitmap);
-//
-//                if(bitmap != null)
-//                {
-//                    Paint paint = new Paint();
-//
-//                    //MemoryStream ms = new MemoryStream();
-//                    //currentBitmap.Compress(Bitmap.CompressFormat.Jpeg, 100, ms);
-//                    //byte[] bitmapData = ms.toArray();
-//                    //Bitmap bitmap = BitmapFactory.DecodeByteArray(bitmapData, 0, bitmapData.Length);
-//                    //Bitmap scaledBitmap = Bitmap.CreateScaledBitmap(bitmap, mPreview2.Width, mPreview2.Height, true);
-//
-//                    canvas.drawBitmap(ref, 0, 0, paint);
-//                    ref.recycle();
-//                    //scaledBitmap.Recycle();
-//                    //currentBitmap.Recycle();
-//                }
-//                view.getHolder().unlockCanvasAndPost(canvas);
-//            }
-
-//
-//            // print image format
-//            int format = reader.getImageFormat();
-//            Log.d(TAG, "the format of captured frame: " + format);
-//
-//            // HERE to call jni methods
-//            JNIUtils.display(image.getWidth(), image.getHeight(), image.getPlanes()[0].getBuffer(), surface);
-//
-//
-//            //ByteBuffer buffer = image.getPlanes()[0].getBuffer();
-//            //byte[] bytes = new byte[buffer.remaining()];
-//
-//
-//              image.close();
-        }
-    };
-
-    @Override
-    protected void onResume() {
-        super.onResume();
-        //ImageView view = findViewById(R.id.imageView);
-        //view.invalidate();
-    }
-
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main_new);
-        //Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
-        //setSupportActionBar(toolbar);
-
-//        FloatingActionButton fab = (FloatingActionButton) findViewById(R.id.fab);
-//        fab.setOnClickListener(new View.OnClickListener() {
-//            @Override
-//            public void onClick(View view) {
-//                Snackbar.make(view, "Replace with your own action", Snackbar.LENGTH_LONG)
-//                        .setAction("Action", null).show();
-//            }
-//        });
-
-        InputStream stream = getResources().openRawResource(R.raw.fox2);
-        BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8));
-        myMesh = new ObjLoader(reader, false);
-
-        //ImageView view2 = MainActivity.this.findViewById(R.id.imageView2);
-
-        myImageWidth = 640;//1328;//5312;//view2.getMaxWidth();
-        myImageHeight = 480;//747;//2988;//view2.getMaxHeight();
-        //Log.i("here", view2.getMaxWidth() + " " + view2.getMaxWidth());
-
-        uiHandler = new Handler();
-
         BitmapFactory.Options o = new BitmapFactory.Options();
         o.inScaled = false;
 
-        testref = BitmapFactory.decodeResource(getResources(), R.drawable.ref2corrigee, o);
-        this.setupCamera();
-
-        //TextureView view = findViewById(R.id.textureView2);
-        //view.setSurfaceTextureListener(textureListener);
-        askForPermissionAndOpenCamera();
-
-        //
+        //Bitmap b = BitmapFactory.decodeResource(getResources(), R.drawable.frametest, o);
 
 
-        //
+        //org.opencv.android.Utils.bitmapToMat(b, frame);
+        //b.recycle();
 
-        //
-        ImageView view2 = this.findViewById(R.id.imageView2);
-        Log.i("here", ""+testref);
-        view2.setImageBitmap(testref);
-        view2.invalidate();
+        if (firstFrame) {
+            //InputStream stream = getResources().openRawResource(R.raw.ref2corrigee);
 
-        //Bitmap image = BitmapFactory.decodeResource(getResources(), R.drawable.frametest, o);
+            Bitmap ref = BitmapFactory.decodeResource(getResources(), R.drawable.ref2corrigee, o);
 
+            myImgRef = new Mat();
+            org.opencv.android.Utils.bitmapToMat(ref, myImgRef);
+            //org.opencv.imgproc.Imgproc.cvtColor(myImgRef, myImgRef, Imgproc.COLOR_BGR2GRAY);
+            matcher.computeReferenceImage(myImgRef, algo);
+            firstFrame = false;
 
+            //For video, resize pixel size accordingly
+            pixelSizeMm = pixelSizeMm * (imageRefSizeX / (double) frame.width());
+            fpixel = focalLengthMm / pixelSizeMm;
+            K = new Mat(3, 3, CvType.CV_64FC1);
+            K.put(0, 0, fpixel);
+            K.put(0, 1, 0.);
+            K.put(0, 2, frame.width() / 2.);
+            K.put(1, 0, 0);
+            K.put(1, 1, fpixel);
+            K.put(1, 2, frame.height() / 2.);
+            K.put(2, 0, 0);
+            K.put(2, 1, 0);
+            K.put(2, 2, 1);
+        }
 
+        Mat h = matcher.computeHomography(frame, algo);
+        //h.convertTo(h, CvType.CV_32F);
+        if (h != null && !h.empty()) {
+            if (drawBorder) {
+                Size size = myImgRef.size();
+                MatOfPoint2f pts = new MatOfPoint2f(new Point(0f, 0f),
+                        new Point(0f, size.height - 1),
+                        new Point(size.width - 1, size.height - 1),
+                        new Point(size.width - 1, 0));
+                MatOfPoint2f dst = new MatOfPoint2f();
 
+                //Log.i("h=", h.dump());
+                Core.perspectiveTransform(pts, dst, h);
+                //Log.i("dst=", dst.dump());
+                MatOfPoint intDst = new MatOfPoint();
+                dst.convertTo(intDst, CvType.CV_32S);
 
+                //connect them with lines
+                Imgproc.polylines(frame, Arrays.asList(intDst), true, new Scalar(255, 0, 0, 255), 3, Imgproc.LINE_AA);
+            }
 
+            Mat proj = Utils.projectionMatrix(K, h);
+            frame = Utils.render(frame, myMesh, proj, myImgRef, true, null);
+            frame.convertTo(frame, CvType.CV_8UC3);
 
+            //res.recycle();
+        }
+
+        return frame;
     }
 
-    @Override
-    public boolean onCreateOptionsMenu(Menu menu) {
-        // Inflate the menu; this adds items to the action bar if it is present.
-        getMenuInflater().inflate(R.menu.menu_main, menu);
+    public boolean onOptionsItemSelected(MenuItem item) {
+        Log.i(TAG, "called onOptionsItemSelected; selected item: " + item);
+
+//        if (item == mItemPreviewRGBA) {
+//        mViewMode = VIEW_MODE_RGBA;
+//        } else if (item == mItemPreviewGray) {
+//        mViewMode = VIEW_MODE_GRAY;
+//        } else if (item == mItemPreviewCanny) {
+//        mViewMode = VIEW_MODE_CANNY;
+//        } else if (item == mItemPreviewFeatures) {
+//        mViewMode = VIEW_MODE_FEATURES;
+//        }
+
         return true;
     }
 
-    @Override
-    public boolean onOptionsItemSelected(MenuItem item) {
-        // Handle action bar item clicks here. The action bar will
-        // automatically handle clicks on the Home/Up button, so long
-        // as you specify a parent activity in AndroidManifest.xml.
-        int id = item.getItemId();
-
-        //noinspection SimplifiableIfStatement
-        if (id == R.id.action_settings) {
-            return true;
-        }
-
-        return super.onOptionsItemSelected(item);
-    }
-
-//    @Override
-//    public void onPreviewFrame(byte[] data, Camera camera) {
-//
-//    }
-
-    public void askForPermissionAndOpenCamera() {
+    public void askForCameraPermission() {
         if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_DENIED)
             ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION_CODE);
-        else
-            openCamera();
     }
 
-    //=========================================================================
-    ///////////////////////////////////////////////////////////////////////////
-    private void createCameraPreviewSession() {
-        try {
-            //SurfaceView view = this.findViewById(R.id.surfaceView3);
-            //myPreviewSurface = view.getHolder().getSurface();
-
-            //TextureView view = findViewById(R.id.textureView2);
-            //SurfaceTexture texture = view.getSurfaceTexture();
-            // We configure the size of default buffer to be the size of camera preview we want.
-            //texture.setDefaultBufferSize(mPreviewSize.getWidth(), mPreviewSize.getHeight());
-            //assert texture != null;
-            //Output surface for the preview
-            //myPreviewSurface = new Surface(texture);
-
-            // We set up a CaptureRequest.Builder with the output Surface.
-            final CaptureRequest.Builder previewRequestBuilder
-                    = myCamera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
-            //previewRequestBuilder.addTarget(myPreviewSurface);//surface);
-
-            CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
-            CameraCharacteristics characteristics
-                    = manager.getCameraCharacteristics(myCameraId);
-
-            // We don't use a front facing camera in this sample.
-            Integer facing = characteristics.get(CameraCharacteristics.LENS_FACING);
-            if (facing != null && facing == CameraCharacteristics.LENS_FACING_FRONT) {
-                return;
-            }
-
-            StreamConfigurationMap map = characteristics.get(
-                        CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
-                if (map == null) {
-                    return;
-                }
-
-                // For still image captures, we use the largest available size.
-                android.util.Size largest = Collections.max(
-                        Arrays.asList(map.getOutputSizes(ImageFormat.JPEG)),
-                        new CompareSizesByArea());
-
-            //myImageReader = ImageReader.newInstance(largest.getWidth(), largest.getHeight(), ImageFormat.JPEG, 1);//myImageWidth, myImageHeight, ImageFormat.JPEG, 1);//ImageFormat.YUV_420_888, 2);
-            myImageReader = ImageReader.newInstance(myImageWidth, myImageHeight, ImageFormat.JPEG, 1);
-            myImageReader.setOnImageAvailableListener(mOnImageAvailableListener, null);
-            previewRequestBuilder.addTarget(myImageReader.getSurface());
-
-            // Here, we create a CameraCaptureSession for camera preview.
-            myCamera.createCaptureSession(Arrays.asList(/*myPreviewSurface,*/ myImageReader.getSurface()),
-                    new CameraCaptureSession.StateCallback() {
-
-                        @Override
-                        public void onConfigured(@NonNull CameraCaptureSession cameraCaptureSession) {
-                            // The camera is already closed
-                            if (myCamera == null) {
-                                return;
-                            }
-
-                            // When the session is ready, we start displaying the preview.
-                            myCaptureSession = cameraCaptureSession;
-                            try {
-                                // Auto focus should be continuous for camera preview.
-                                previewRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE,
-                                        CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
-                                // Flash is automatically enabled when necessary.
-                                //setAutoFlash(mPreviewRequestBuilder);
-
-                                // Finally, we start displaying the camera preview.
-                                CaptureRequest previewRequest = previewRequestBuilder.build();
-                                myCaptureSession.setRepeatingRequest(previewRequest, null, null);
-                                        //myCaptureCallback, myBackgroundHandler);
-                            } catch (CameraAccessException e) {
-                                e.printStackTrace();
-                            }
-                        }
-
-                        @Override
-                        public void onConfigureFailed(
-                                @NonNull CameraCaptureSession cameraCaptureSession) {
-                            Toast.makeText(getApplicationContext(), "Failed to configure the camera", Toast.LENGTH_SHORT).show();
-                        }
-                    }, null
-            );
-        } catch (CameraAccessException e) {
-            e.printStackTrace();
-        }
-    }
-
-    //=========================================================================
-    ///////////////////////////////////////////////////////////////////////////
-    private void setupCamera() {
-        try {
-            cameraManager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
-
-            for (String cameraId : cameraManager.getCameraIdList()) {
-                CameraCharacteristics cameraCharacteristics =
-                        cameraManager.getCameraCharacteristics(cameraId);
-                if (cameraCharacteristics.get(CameraCharacteristics.LENS_FACING) ==
-                        CameraCharacteristics.LENS_FACING_BACK) {
-                    StreamConfigurationMap streamConfigurationMap = cameraCharacteristics.get(
-                            CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
-                    //previewSize = streamConfigurationMap.getOutputSizes(SurfaceTexture.class)[0];
-                    this.myCameraId = cameraId;
-                }
-            }
-        } catch (CameraAccessException e) {
-            e.printStackTrace();
-        }
-    }
-
-    //=========================================================================
-    ///////////////////////////////////////////////////////////////////////////
-    private void openCamera() {
-        try {
-            if (ActivityCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA)
-                    == PackageManager.PERMISSION_GRANTED) {
-                cameraManager.openCamera(myCameraId, myStateCallback, null);// backgroundHandler);
-            }
-        } catch (CameraAccessException e) {
-            e.printStackTrace();
-        }
-    }
-
-    //=========================================================================
-    ///////////////////////////////////////////////////////////////////////////
-    @Override
-    public void onRequestPermissionsResult(int requestCode,
-                                           String permissions[], int[] results) {
-        switch (requestCode) {
-            case CAMERA_PERMISSION_CODE:
-                if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) {
-                    // permission granted
-                    openCamera();
-                } else {
-                    // permission denied
-                    Toast.makeText(getApplicationContext(), "Camera permission must be enabled", Toast.LENGTH_SHORT).show();
-                    finish();
-                }
-        }
-    }
-
-    static class CompareSizesByArea implements Comparator<android.util.Size> {
-
-        @Override
-        public int compare(android.util.Size lhs, android.util.Size rhs) {
-            // We cast here to ensure the multiplications won't overflow
-            return Long.signum((long) lhs.getWidth() * lhs.getHeight() -
-                    (long) rhs.getWidth() * rhs.getHeight());
-        }
-
-    }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//public class MainActivity extends AppCompatActivity { //implements Camera.PreviewCallback {
+//
+//    //Manager for all available cameras of the device
+//    private CameraManager cameraManager;
+//    //Camera device
+//    private CameraDevice myCamera;
+//    //Capture session reference
+//    private CameraCaptureSession myCaptureSession;
+//    //private SurfaceView mySurface;
+//    private ImageReader myImageReader;
+//    private int myImageWidth;
+//    private int myImageHeight;
+//    //Id of the used camera
+//    String myCameraId;
+//    //Surface used for the preview process
+//    Surface myPreviewSurface;
+//    private ObjLoader myMesh;
+//
+//    final int CAMERA_PERMISSION_CODE = 1;
+//
+//    //
+//    int MIN_MATCHES = 10;
+//
+//    Matcher.Algo algo = Matcher.Algo.ORB;
+//    boolean firstFrame = true;
+//    boolean drawMatches = false;
+//    boolean drawBorder = true;
+//
+//    //Camera parameters
+//    int imageRefSizeX = 5312;//5312 x 2988 #nb imgref was redim, we cannot use it
+//    int imageRefSizeY = 2988;
+//    double pixelSizeMm = 0.00112;
+//    double focalLengthMm = 4.3;
+//    double fpixel;// = focalLengthMm / pixelSizeMm
+//    Mat K = null;
+//    Matcher matcher = new Matcher();
+//    Mat myImgRef;
+//    //
+//
+//
+//    Bitmap testref;
+//    Handler uiHandler;
+//    static {
+//        if (!OpenCVLoader.initDebug()) {
+//            // Handle initialization error
+//            Log.e(MainActivity.class.getName(), "OpenCV could not be initialized");
+//        }
+//        //System.loadLibrary("opencv_java3");
+//    }
+//
+//    private final CameraDevice.StateCallback myStateCallback = new CameraDevice.StateCallback() {
+//        @Override
+//        public void onOpened(@NonNull CameraDevice cameraDevice) {
+//            // This method is called when the camera is opened.  We start camera preview here.
+//            //mCameraOpenCloseLock.release();
+//            myCamera = cameraDevice;
+//            createCameraPreviewSession();
+//        }
+//
+//        @Override
+//        public void onDisconnected(@NonNull CameraDevice cameraDevice) {
+//            //mCameraOpenCloseLock.release();
+//            cameraDevice.close();
+//            myCamera = null;
+//        }
+//
+//        @Override
+//        public void onError(@NonNull CameraDevice cameraDevice, int error) {
+//            //mCameraOpenCloseLock.release();
+//            cameraDevice.close();
+//            myCamera = null;
+//            MainActivity.this.finish();
+//            //Activity activity = getActivity();
+//            //if (null != activity) {
+//            //    this.finish();
+//            //}
+//        }
+//
+//    };
+//
+//    //Preview texture listener
+//    TextureView.SurfaceTextureListener textureListener = new TextureView.SurfaceTextureListener() {
+//        @Override
+//        public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
+//            askForPermissionAndOpenCamera();
+//        }
+//        @Override
+//        public void onSurfaceTextureSizeChanged(SurfaceTexture surface, int width, int height) {
+//            // Transform you image captured size according to the surface width and height
+//        }
+//        @Override
+//        public boolean onSurfaceTextureDestroyed(SurfaceTexture surface) {
+//            return false;
+//        }
+//        @Override
+//        public void onSurfaceTextureUpdated(SurfaceTexture surface) {
+//        }
+//    };
+//
+//    //processing-purpose texture listener
+//    protected ImageReader.OnImageAvailableListener mOnImageAvailableListener = new ImageReader.OnImageAvailableListener() {
+//
+//        @Override
+//        public void onImageAvailable(ImageReader reader) {
+//            // get the newest frame
+//            Image image = reader.acquireLatestImage();
+//
+//            if (image == null) {
+//                return;
+//            }
+//
+//            //for jpeg image
+//            ByteBuffer buffer = image.getPlanes()[0].getBuffer();
+//            byte[] bytes = new byte[buffer.remaining()];
+//            buffer.get(bytes);
+//            Bitmap bitmap = BitmapFactory.decodeByteArray(bytes,0,bytes.length,null);
+//
+//            image.close();
+//
+//            Mat frame = new Mat();//
+//            org.opencv.android.Utils.bitmapToMat(bitmap, frame);
+//            //org.opencv.imgproc.Imgproc.cvtColor(frame, frame, Imgproc.COLOR_BGR2GRAY);
+//
+//            //yuv ?
+////           Mat buf = new Mat(image.getHeight(), image.getWidth(), CvType.CV_8UC1);
+////           org.opencv.android.Utils.
+////           ByteBuffer buffer = image.getPlanes()[0].getBuffer();
+////           byte[] bytes = new byte[buffer.remaining()];
+////           buffer.get(bytes);
+////           buf.put(0, 0, bytes);
+////
+////            Mat mat = Imgcodecs.imdecode(buf, Imgcodecs.IMREAD_COLOR);
+//            BitmapFactory.Options o = new BitmapFactory.Options();
+//            o.inScaled = false;
+//
+//            //Bitmap b = BitmapFactory.decodeResource(getResources(), R.drawable.frametest, o);
+//
+//
+//            //org.opencv.android.Utils.bitmapToMat(b, frame);
+//            //b.recycle();
+//
+//            if (firstFrame) {
+//                //InputStream stream = getResources().openRawResource(R.raw.ref2corrigee);
+//
+//                Bitmap ref = BitmapFactory.decodeResource(getResources(), R.drawable.ref2corrigee, o);
+//
+//                myImgRef = new Mat();
+//                org.opencv.android.Utils.bitmapToMat(testref, myImgRef);
+//                //org.opencv.imgproc.Imgproc.cvtColor(myImgRef, myImgRef, Imgproc.COLOR_BGR2GRAY);
+//                matcher.computeReferenceImage(myImgRef, algo);
+//                firstFrame = false;
+//
+//                //For video, resize pixel size accordingly
+//                pixelSizeMm = pixelSizeMm * (imageRefSizeX / (double) frame.width());
+//                fpixel = focalLengthMm / pixelSizeMm;
+//                K = new Mat(3, 3, CvType.CV_64FC1);
+//                K.put(0, 0, fpixel);
+//                K.put(0, 1, 0.);
+//                K.put(0, 2, frame.width() / 2.);
+//                K.put(1, 0, 0);
+//                K.put(1, 1, fpixel);
+//                K.put(1, 2, frame.height() / 2.);
+//                K.put(2, 0, 0);
+//                K.put(2, 1, 0);
+//                K.put(2, 2, 1);
+//            }
+//
+//            Mat h = matcher.computeHomography(frame, algo);
+//            //h.convertTo(h, CvType.CV_32F);
+//            if (h != null && !h.empty()) {
+//                if (drawBorder) {
+//                    Size size = myImgRef.size();
+//                    MatOfPoint2f pts = new MatOfPoint2f(new Point(0f, 0f),
+//                            new Point(0f, size.height - 1),
+//                            new Point(size.width - 1, size.height - 1),
+//                            new Point(size.width - 1, 0));
+//                    MatOfPoint2f dst = new MatOfPoint2f();
+//
+//                    //Log.i("h=", h.dump());
+//                    Core.perspectiveTransform(pts, dst, h);
+//                    //Log.i("dst=", dst.dump());
+//                    MatOfPoint intDst = new MatOfPoint();
+//                    dst.convertTo(intDst, CvType.CV_32S);
+//
+//                    //connect them with lines
+//                    Imgproc.polylines(frame, Arrays.asList(intDst), true, new Scalar(255, 0, 0, 255), 3, Imgproc.LINE_AA);
+//                }
+//
+//                Mat proj = Utils.projectionMatrix(K, h);
+//                frame = Utils.render(frame, myMesh, proj, myImgRef, true, null);
+//                frame.convertTo(frame, CvType.CV_8UC3);
+//
+//                //res.recycle();
+//            }
+//
+//            ImageView view2 = MainActivity.this.findViewById(R.id.imageView2);
+//            Bitmap res = Bitmap.createBitmap(frame.width(), frame.height(), Bitmap.Config.ARGB_8888);
+//            org.opencv.android.Utils.matToBitmap(frame, res);
+//
+//            view2.setImageBitmap(null);
+//            view2.setImageBitmap(res);
+//            view2.invalidate();
+//            //res.recycle();
+//
+//            // When a bitmap is downloaded you do:
+////            uiHandler.post(new Runnable() {
+////                public void run() {
+////                ImageView view = MainActivity.this.findViewById(R.id.imageView);
+////                System.out.println(testref);
+////                view.setImageBitmap(testref);
+////                view.invalidate();
+////                //    ref.recycle();
+////            }
+////            });
+//
+//
+////            Canvas canvas = view.getHolder().lockCanvas();
+////
+////            if (canvas != null)
+////            {
+////                //Bitmap toDisplay = Bitmap.createBitmap(frame.width(), frame.height(), Bitmap.Config.ARGB_8888);
+////                //org.opencv.android.Utils.matToBitmap(frame, bitmap);
+////
+////                if(bitmap != null)
+////                {
+////                    Paint paint = new Paint();
+////
+////                    //MemoryStream ms = new MemoryStream();
+////                    //currentBitmap.Compress(Bitmap.CompressFormat.Jpeg, 100, ms);
+////                    //byte[] bitmapData = ms.toArray();
+////                    //Bitmap bitmap = BitmapFactory.DecodeByteArray(bitmapData, 0, bitmapData.Length);
+////                    //Bitmap scaledBitmap = Bitmap.CreateScaledBitmap(bitmap, mPreview2.Width, mPreview2.Height, true);
+////
+////                    canvas.drawBitmap(ref, 0, 0, paint);
+////                    ref.recycle();
+////                    //scaledBitmap.Recycle();
+////                    //currentBitmap.Recycle();
+////                }
+////                view.getHolder().unlockCanvasAndPost(canvas);
+////            }
+//
+////
+////            // print image format
+////            int format = reader.getImageFormat();
+////            Log.d(TAG, "the format of captured frame: " + format);
+////
+////            // HERE to call jni methods
+////            JNIUtils.display(image.getWidth(), image.getHeight(), image.getPlanes()[0].getBuffer(), surface);
+////
+////
+////            //ByteBuffer buffer = image.getPlanes()[0].getBuffer();
+////            //byte[] bytes = new byte[buffer.remaining()];
+////
+////
+////              image.close();
+//        }
+//    };
+//
+//    @Override
+//    protected void onResume() {
+//        super.onResume();
+//        //ImageView view = findViewById(R.id.imageView);
+//        //view.invalidate();
+//    }
+//
+//    @Override
+//    protected void onCreate(Bundle savedInstanceState) {
+//        super.onCreate(savedInstanceState);
+//        setContentView(R.layout.activity_main_new);
+//        //Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
+//        //setSupportActionBar(toolbar);
+//
+////        FloatingActionButton fab = (FloatingActionButton) findViewById(R.id.fab);
+////        fab.setOnClickListener(new View.OnClickListener() {
+////            @Override
+////            public void onClick(View view) {
+////                Snackbar.make(view, "Replace with your own action", Snackbar.LENGTH_LONG)
+////                        .setAction("Action", null).show();
+////            }
+////        });
+//
+//        InputStream stream = getResources().openRawResource(R.raw.fox2);
+//        BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8));
+//        myMesh = new ObjLoader(reader, false);
+//
+//        //ImageView view2 = MainActivity.this.findViewById(R.id.imageView2);
+//
+//        myImageWidth = 640;//1328;//5312;//view2.getMaxWidth();
+//        myImageHeight = 480;//747;//2988;//view2.getMaxHeight();
+//        //Log.i("here", view2.getMaxWidth() + " " + view2.getMaxWidth());
+//
+//        uiHandler = new Handler();
+//
+//        BitmapFactory.Options o = new BitmapFactory.Options();
+//        o.inScaled = false;
+//
+//        testref = BitmapFactory.decodeResource(getResources(), R.drawable.ref2corrigee, o);
+//        this.setupCamera();
+//
+//        //TextureView view = findViewById(R.id.textureView2);
+//        //view.setSurfaceTextureListener(textureListener);
+//        askForPermissionAndOpenCamera();
+//
+//        //
+//
+//
+//        //
+//
+//        //
+//        ImageView view2 = this.findViewById(R.id.imageView2);
+//        Log.i("here", ""+testref);
+//        view2.setImageBitmap(testref);
+//        view2.invalidate();
+//
+//        //Bitmap image = BitmapFactory.decodeResource(getResources(), R.drawable.frametest, o);
+//
+//
+//
+//
+//
+//
+//
+//    }
+//
+//    @Override
+//    public boolean onCreateOptionsMenu(Menu menu) {
+//        // Inflate the menu; this adds items to the action bar if it is present.
+//        getMenuInflater().inflate(R.menu.menu_main, menu);
+//        return true;
+//    }
+//
+//    @Override
+//    public boolean onOptionsItemSelected(MenuItem item) {
+//        // Handle action bar item clicks here. The action bar will
+//        // automatically handle clicks on the Home/Up button, so long
+//        // as you specify a parent activity in AndroidManifest.xml.
+//        int id = item.getItemId();
+//
+//        //noinspection SimplifiableIfStatement
+//        if (id == R.id.action_settings) {
+//            return true;
+//        }
+//
+//        return super.onOptionsItemSelected(item);
+//    }
+//
+////    @Override
+////    public void onPreviewFrame(byte[] data, Camera camera) {
+////
+////    }
+//
+//    public void askForPermissionAndOpenCamera() {
+//        if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_DENIED)
+//            ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION_CODE);
+//        else
+//            openCamera();
+//    }
+//
+//    //=========================================================================
+//    ///////////////////////////////////////////////////////////////////////////
+//    private void createCameraPreviewSession() {
+//        try {
+//            //SurfaceView view = this.findViewById(R.id.surfaceView3);
+//            //myPreviewSurface = view.getHolder().getSurface();
+//
+//            //TextureView view = findViewById(R.id.textureView2);
+//            //SurfaceTexture texture = view.getSurfaceTexture();
+//            // We configure the size of default buffer to be the size of camera preview we want.
+//            //texture.setDefaultBufferSize(mPreviewSize.getWidth(), mPreviewSize.getHeight());
+//            //assert texture != null;
+//            //Output surface for the preview
+//            //myPreviewSurface = new Surface(texture);
+//
+//            // We set up a CaptureRequest.Builder with the output Surface.
+//            final CaptureRequest.Builder previewRequestBuilder
+//                    = myCamera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+//            //previewRequestBuilder.addTarget(myPreviewSurface);//surface);
+//
+//            CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
+//            CameraCharacteristics characteristics
+//                    = manager.getCameraCharacteristics(myCameraId);
+//
+//            // We don't use a front facing camera in this sample.
+//            Integer facing = characteristics.get(CameraCharacteristics.LENS_FACING);
+//            if (facing != null && facing == CameraCharacteristics.LENS_FACING_FRONT) {
+//                return;
+//            }
+//
+//            StreamConfigurationMap map = characteristics.get(
+//                        CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+//                if (map == null) {
+//                    return;
+//                }
+//
+//                // For still image captures, we use the largest available size.
+//                android.util.Size largest = Collections.max(
+//                        Arrays.asList(map.getOutputSizes(ImageFormat.JPEG)),
+//                        new CompareSizesByArea());
+//
+//            //myImageReader = ImageReader.newInstance(largest.getWidth(), largest.getHeight(), ImageFormat.JPEG, 1);//myImageWidth, myImageHeight, ImageFormat.JPEG, 1);//ImageFormat.YUV_420_888, 2);
+//            myImageReader = ImageReader.newInstance(myImageWidth, myImageHeight, ImageFormat.JPEG, 1);
+//            myImageReader.setOnImageAvailableListener(mOnImageAvailableListener, null);
+//            previewRequestBuilder.addTarget(myImageReader.getSurface());
+//
+//            // Here, we create a CameraCaptureSession for camera preview.
+//            myCamera.createCaptureSession(Arrays.asList(/*myPreviewSurface,*/ myImageReader.getSurface()),
+//                    new CameraCaptureSession.StateCallback() {
+//
+//                        @Override
+//                        public void onConfigured(@NonNull CameraCaptureSession cameraCaptureSession) {
+//                            // The camera is already closed
+//                            if (myCamera == null) {
+//                                return;
+//                            }
+//
+//                            // When the session is ready, we start displaying the preview.
+//                            myCaptureSession = cameraCaptureSession;
+//                            try {
+//                                // Auto focus should be continuous for camera preview.
+//                                previewRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE,
+//                                        CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
+//                                // Flash is automatically enabled when necessary.
+//                                //setAutoFlash(mPreviewRequestBuilder);
+//
+//                                // Finally, we start displaying the camera preview.
+//                                CaptureRequest previewRequest = previewRequestBuilder.build();
+//                                myCaptureSession.setRepeatingRequest(previewRequest, null, null);
+//                                        //myCaptureCallback, myBackgroundHandler);
+//                            } catch (CameraAccessException e) {
+//                                e.printStackTrace();
+//                            }
+//                        }
+//
+//                        @Override
+//                        public void onConfigureFailed(
+//                                @NonNull CameraCaptureSession cameraCaptureSession) {
+//                            Toast.makeText(getApplicationContext(), "Failed to configure the camera", Toast.LENGTH_SHORT).show();
+//                        }
+//                    }, null
+//            );
+//        } catch (CameraAccessException e) {
+//            e.printStackTrace();
+//        }
+//    }
+//
+//    //=========================================================================
+//    ///////////////////////////////////////////////////////////////////////////
+//    private void setupCamera() {
+//        try {
+//            cameraManager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
+//
+//            for (String cameraId : cameraManager.getCameraIdList()) {
+//                CameraCharacteristics cameraCharacteristics =
+//                        cameraManager.getCameraCharacteristics(cameraId);
+//                if (cameraCharacteristics.get(CameraCharacteristics.LENS_FACING) ==
+//                        CameraCharacteristics.LENS_FACING_BACK) {
+//                    StreamConfigurationMap streamConfigurationMap = cameraCharacteristics.get(
+//                            CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+//                    //previewSize = streamConfigurationMap.getOutputSizes(SurfaceTexture.class)[0];
+//                    this.myCameraId = cameraId;
+//                }
+//            }
+//        } catch (CameraAccessException e) {
+//            e.printStackTrace();
+//        }
+//    }
+//
+//    //=========================================================================
+//    ///////////////////////////////////////////////////////////////////////////
+//    private void openCamera() {
+//        try {
+//            if (ActivityCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA)
+//                    == PackageManager.PERMISSION_GRANTED) {
+//                cameraManager.openCamera(myCameraId, myStateCallback, null);// backgroundHandler);
+//            }
+//        } catch (CameraAccessException e) {
+//            e.printStackTrace();
+//        }
+//    }
+//
+//    //=========================================================================
+//    ///////////////////////////////////////////////////////////////////////////
+//    @Override
+//    public void onRequestPermissionsResult(int requestCode,
+//                                           String permissions[], int[] results) {
+//        switch (requestCode) {
+//            case CAMERA_PERMISSION_CODE:
+//                if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) {
+//                    // permission granted
+//                    openCamera();
+//                } else {
+//                    // permission denied
+//                    Toast.makeText(getApplicationContext(), "Camera permission must be enabled", Toast.LENGTH_SHORT).show();
+//                    finish();
+//                }
+//        }
+//    }
+//
+//    static class CompareSizesByArea implements Comparator<android.util.Size> {
+//
+//        @Override
+//        public int compare(android.util.Size lhs, android.util.Size rhs) {
+//            // We cast here to ensure the multiplications won't overflow
+//            return Long.signum((long) lhs.getWidth() * lhs.getHeight() -
+//                    (long) rhs.getWidth() * rhs.getHeight());
+//        }
+//
+//    }
+//}
 
 //https://stackoverflow.com/questions/12695232/using-native-functions-in-android-with-opencv/12699835#12699835
 //https://stackoverflow.com/questions/53277911/how-to-import-3d-model-obj-into-android-studio

@@ -24,6 +24,7 @@ import org.opencv.core.Scalar;
 import org.opencv.core.Size;
 import org.opencv.features2d.BFMatcher;
 //import org.opencv.highgui.HighGui;
+import org.opencv.features2d.FlannBasedMatcher;
 import org.opencv.imgcodecs.Imgcodecs;
 import org.opencv.imgproc.Imgproc;
 import org.opencv.videoio.VideoCapture;
@@ -33,12 +34,16 @@ import com.ar.loader3d.ObjLoader;
 public class Matcher {
     public enum Algo {ORB, SIFT};
 
-    public final float LOWE_RATIO = 0.7f;
+    public enum MatchingType {BF_MATCHING, KNN_MATCHING, FLANN_MATCHING};
+
+    public final float LOWE_RATIO = 0.8f;
     public final int MIN_MATCHES = 10;
 
     protected int myORBnMatch = 100;
     protected MatOfKeyPoint myKpRef;
     protected Mat myDescRef;
+
+    protected MatchingType myMatchingType = MatchingType.BF_MATCHING;
 
     public Matcher() {
         myKpRef = new MatOfKeyPoint();
@@ -111,7 +116,7 @@ public class Matcher {
      * @return
      */
     public List<DMatch> match(Mat desc1, Mat desc2, Algo algo) {
-        if (algo == Algo.ORB) {
+        if (myMatchingType == MatchingType.BF_MATCHING) {
             org.opencv.features2d.BFMatcher bf = BFMatcher.create(org.opencv.core.Core.NORM_HAMMING, true);
 
             MatOfDMatch matches = new MatOfDMatch();
@@ -139,9 +144,9 @@ public class Matcher {
                 return nMatchArray;
             } else
                 return matchArray;
-        } else {
+        } else if (myMatchingType == MatchingType.KNN_MATCHING) {
             List<MatOfDMatch> matches = new ArrayList<>();
-            BFMatcher bf = new BFMatcher();
+            org.opencv.features2d.BFMatcher bf = BFMatcher.create();
             bf.knnMatch(desc1, desc2, matches, 2);
 
             //store all the good matches as per Lowe's ratio test.
@@ -156,10 +161,12 @@ public class Matcher {
                 if (dist1 < LOWE_RATIO * dist2) {
                     goodMatches.add(first);
                 }
-
             }
 
             return goodMatches;
+        } else {
+            //org.opencv.features2d.BFMatcher bf = FlannBasedMatcher.create();
+            return null;
         }
     }
 
