@@ -385,7 +385,7 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
 
             myRenderer.shouldDraw(true);
             myRenderer.drawFrame(true);
-            myRenderer.translateMesh(myImgRef.width() / 2., -myImgRef.height() / 2.); //with opengl axis
+            //myRenderer.translateMesh(myImgRef.width() / 2., -myImgRef.height() / 2.); //with opengl axis
             myRenderer.translateMesh(myImgRef.width() / 2., myImgRef.height() / 2.); //with opencv axis
             //nb : invert axis to fit opencv (just to help debugging). invert extr matrix because it wil be inverted by opengl
             double ratioX = 2560. / frame.width();

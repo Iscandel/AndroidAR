@@ -92,7 +92,7 @@ public class Matcher {
      */
     public void orbDetector(Mat image, MatOfKeyPoint kp, Mat desc) {
         //Initiate ORB detector
-        org.opencv.features2d.ORB orb = org.opencv.features2d.ORB.create();//5000);
+        org.opencv.features2d.ORB orb = org.opencv.features2d.ORB.create();//1000);
 
         orb.detectAndCompute(image, new Mat(), kp, desc);
     }
@@ -213,8 +213,18 @@ public class Matcher {
             srcPoints.fromArray(tmpSrc);
             destPoints.fromArray(tmpDest);
 
-            homography = org.opencv.calib3d.Calib3d.findHomography(srcPoints, destPoints, org.opencv.calib3d.Calib3d.RANSAC,5.0);
-            return homography;
+            Mat mask = new Mat();
+            homography = org.opencv.calib3d.Calib3d.findHomography(srcPoints, destPoints, org.opencv.calib3d.Calib3d.RANSAC,5.0, mask);
+
+            ArrayList<DMatch> inliers = new ArrayList<>();
+            for (int i = 0; i < mask.rows(); i++)
+            {
+                if (mask.get(i, 0)[0] != 0)
+                    inliers.add(matches.get(i));
+            }
+
+            matches = new ArrayList(inliers);
+            return (matches.size() > MIN_MATCHES) ? homography : null;
         }
 
         return null;
