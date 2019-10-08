@@ -118,7 +118,7 @@ public class Matcher {
     public List<DMatch> match(Mat desc1, Mat desc2, Algo algo) {
         if (myMatchingType == MatchingType.BF_MATCHING) {
             org.opencv.features2d.BFMatcher bf = BFMatcher.create(org.opencv.core.Core.NORM_HAMMING, true);
-
+            bf.train();
             MatOfDMatch matches = new MatOfDMatch();
 
             //Match descriptors.
@@ -147,6 +147,7 @@ public class Matcher {
         } else if (myMatchingType == MatchingType.KNN_MATCHING) {
             List<MatOfDMatch> matches = new ArrayList<>();
             org.opencv.features2d.BFMatcher bf = BFMatcher.create();
+            bf.train();
             bf.knnMatch(desc1, desc2, matches, 2);
 
             //store all the good matches as per Lowe's ratio test.

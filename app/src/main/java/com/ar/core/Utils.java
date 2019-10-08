@@ -5,6 +5,7 @@ import com.ar.loader3d.ObjLoader;
 import org.opencv.imgproc.Imgproc;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 
 import org.opencv.core.*;
 
@@ -13,6 +14,30 @@ import com.ar.loader3d.ObjLoader.Vector2;
 import com.ar.loader3d.ObjLoader.Vector3;
 
 public class Utils {
+
+    static public void drawFrame(Mat image, Mat projection, Mat model) {
+        Size size = model.size();
+        float scaleFactor = 1000;
+        Point3 translation = new Point3(size.width / 2.f, size.height / 2.f, 0);
+        MatOfPoint3f xPoints = new MatOfPoint3f(new Point3(0f, 0f, 0f), new Point3(scaleFactor, 0, 0));
+        MatOfPoint3f yPoints = new MatOfPoint3f(new Point3(0f, 0f, 0f), new Point3(0, scaleFactor, 0));
+        MatOfPoint3f zPoints = new MatOfPoint3f(new Point3(0f, 0f, 0f), new Point3(0,0, scaleFactor));
+
+        MatOfPoint2f dst = new MatOfPoint2f();
+        Core.perspectiveTransform(xPoints, dst, projection);
+        MatOfPoint intDst = new MatOfPoint();
+        dst.convertTo(intDst, CvType.CV_32S);
+        Imgproc.polylines(image, Arrays.asList(intDst), true, new Scalar(255, 0, 0, 255), 3, Imgproc.LINE_AA);
+
+        Core.perspectiveTransform(yPoints, dst, projection);
+        dst.convertTo(intDst, CvType.CV_32S);
+        Imgproc.polylines(image, Arrays.asList(intDst), true, new Scalar(0, 255, 0, 255), 3, Imgproc.LINE_AA);
+
+        Core.perspectiveTransform(zPoints, dst, projection);
+        dst.convertTo(intDst, CvType.CV_32S);
+        Imgproc.polylines(image, Arrays.asList(intDst), true, new Scalar(0, 0, 255, 255), 3, Imgproc.LINE_AA);
+    }
+
     /**
      * Projects a 3D model onto the image
      *
@@ -30,8 +55,6 @@ public class Utils {
         float scaleFactor = 8;//180;
         float[] scaleMatrix = {scaleFactor, scaleFactor, scaleFactor};
 
-        //Mat scaleMatrix = new Mat();
-        //Core.multiply(Mat.eye(new Size(3, 1), CvType.CV_32SC1), 8, scaleMatrix);
         scaleMatrix[1] = -scaleMatrix[1];
         scaleMatrix[2] = -scaleMatrix[2];
         Size refSize = model.size();
@@ -166,6 +189,7 @@ public class Utils {
     static public Mat projectionMatrix(Mat cameraParameters, Mat homography) {
         //From the camera calibration matrix and the estimated homography
         //compute the 3D projection matrix
+        //Core.multiply(homography, new Scalar(-1), homography);
 
         //Recover the extrinsic matrix M: M = K-1 * H in the 2D case
         Mat M = new Mat();
@@ -210,7 +234,7 @@ public class Utils {
         //R = U.mul(Vt);
 
         //Construct the extrinsic matrix [R t]
-        Mat extr = new Mat(3, 4, CvType.CV_64FC1);
+        Mat extr = Mat.eye(3, 4, CvType.CV_64FC1);
         R.col(0).copyTo(extr.col(0));
         R.col(1).copyTo(extr.col(1));
         R.col(2).copyTo(extr.col(2));
@@ -228,7 +252,67 @@ public class Utils {
 //	    System.out.println(extr.dump());
 //	    System.out.println(res1.dump());
         return res1;
-//	    return np.dot(camera_parameters, extr)    
+//	    return np.dot(camera_parameters, extr)
+    }
+
+    /**
+     * Computes the projection matrix
+     *
+     * @param cameraParameters Camera matrix -intrinsic parameters-
+     * @param homography       Computed homography
+     * @return The computed 3D projection matrix
+     */
+    static public void projectionMatrix(Mat cameraParameters, Mat homography, Mat translation, Mat R) {
+        //From the camera calibration matrix and the estimated homography
+        //compute the 3D projection matrix
+        //Core.multiply(homography, new Scalar(-1), homography);
+        //Recover the extrinsic matrix M: M = K-1 * H in the 2D case
+        Mat M = new Mat();
+        Core.gemm(cameraParameters.inv(), homography, 1, new Mat(), 0, M);
+
+        //Normalize the first two columns
+        Mat M0 = M.submat(Range.all(), new Range(0, 1));
+        Mat M1 = M.col(1);
+        double _lambda1 = Core.norm(M0);
+        double _lambda2 = Core.norm(M1);
+        double _lambda = (_lambda1 + _lambda2) / 2.;
+
+        Core.multiply(M0, new Scalar(1. / _lambda1), M0);
+        Core.multiply(M1, new Scalar(1. / _lambda2), M1);
+
+        //Mat translation = new Mat();
+        //System.out.println(M.col(2).dump());
+
+        //Normalize the last column (translation) by the average lambda
+        //Mat t2 = new Mat();
+        Core.multiply(M.col(2), new Scalar(1. / _lambda), translation);
+        //System.out.println(_lambda);
+        //System.out.println(translation.dump());
+        //System.out.println(t2.dump());
+
+        //Construct the rotation matrix
+        M0.copyTo(R.col(0));
+        M1.copyTo(R.col(1));
+        M0.cross(M1).copyTo(R.col(2));
+
+        if (Core.determinant(R) < 0)
+            Core.multiply(R.col(2), new Scalar(-1.), R.col(2));
+        //R[:, 2] = R[:, 2] * (-1)
+
+        //Apply SVD to ensure orthogonality of the rotation matrix
+        Mat W = new Mat();
+        Mat U = new Mat();
+        Mat Vt = new Mat();
+        Core.SVDecomp(R, W, U, Vt);
+        Core.gemm(U, Vt, 1, new Mat(), 0, R);
+        //R = U.mul(Vt);
+
+        //Construct the extrinsic matrix [R t]
+        Mat extr = new Mat(3, 4, CvType.CV_64FC1);
+        R.col(0).copyTo(extr.col(0));
+        R.col(1).copyTo(extr.col(1));
+        R.col(2).copyTo(extr.col(2));
+        translation.copyTo(extr.col(3));
     }
 
     public void drawFrame() {

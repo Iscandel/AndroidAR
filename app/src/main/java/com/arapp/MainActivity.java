@@ -1,11 +1,14 @@
 package com.arapp;
 
 import android.Manifest;
+import android.app.ActionBar;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
 import android.graphics.ImageFormat;
+import android.graphics.Rect;
 import android.graphics.SurfaceTexture;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCharacteristics;
@@ -22,21 +25,28 @@ import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
 import android.view.Surface;
+import android.view.SurfaceView;
 import android.view.TextureView;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraCaptureSession;
+import android.view.ViewGroup;
 import android.view.WindowManager;
+import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.Toast;
 
 import com.ar.core.Matcher;
 import com.ar.core.Utils;
 import com.ar.loader3d.ObjLoader;
+import com.ar.renderer.OpenGLRenderer;
 
+import org.opencv.BuildConfig;
 import org.opencv.android.BaseLoaderCallback;
 import org.opencv.android.CameraBridgeViewBase;
+import org.opencv.android.JavaCamera2View;
+import org.opencv.android.JavaCameraView;
 import org.opencv.android.LoaderCallbackInterface;
 import org.opencv.android.OpenCVLoader;
 import org.opencv.core.MatOfPoint2f;
@@ -48,6 +58,10 @@ import org.opencv.core.MatOfPoint;
 import org.opencv.core.Scalar;
 import org.opencv.core.Size;
 import org.opencv.imgproc.Imgproc;
+import org.rajawali3d.math.Matrix4;
+import org.rajawali3d.math.Quaternion;
+import org.rajawali3d.math.vector.Vector3;
+import org.rajawali3d.view.ISurface;
 
 import java.io.BufferedReader;
 import java.io.InputStream;
@@ -77,6 +91,8 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
     Surface myPreviewSurface;
     private ObjLoader myMesh;
 
+    protected OpenGLRenderer myRenderer;
+
     final int CAMERA_PERMISSION_CODE = 1;
 
     //
@@ -84,6 +100,7 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
 
     Matcher.Algo algo = Matcher.Algo.ORB;
     boolean firstFrame = true;
+    boolean drawFrame = false;
     boolean drawMatches = false;
     boolean drawBorder = true;
 
@@ -148,10 +165,27 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
         super.onCreate(savedInstanceState);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
-        setContentView(R.layout.activity_main_new);
+        //setContentView(R.layout.activity_main_new);
 
+        org.rajawali3d.view.SurfaceView rajawaliView = new org.rajawali3d.view.SurfaceView(this);
+        rajawaliView.setZOrderMediaOverlay(true);
+        rajawaliView.setTransparent(true);
+        myRenderer = new OpenGLRenderer(this);
+        myRenderer.setViewPort(1920, 1080);
+        rajawaliView.setSurfaceRenderer(myRenderer);
+        rajawaliView.setRenderMode(ISurface.RENDERMODE_WHEN_DIRTY);
 
-        mOpenCvCameraView = (CameraBridgeViewBase) findViewById(R.id.imageView2);
+        //myRenderer.setRenderSurface(rawajaliView);
+
+        FrameLayout v = new FrameLayout(this);
+        v.addView(rajawaliView);
+        ViewGroup.LayoutParams params = rajawaliView.getLayoutParams();
+        params.width = ViewGroup.LayoutParams.MATCH_PARENT;
+        rajawaliView.setLayoutParams(params);
+        //mOpenCvCameraView = (CameraBridgeViewBase) findViewById(R.id.imageView2);
+        mOpenCvCameraView = new JavaCameraView(this, -1);
+        v.addView(mOpenCvCameraView);
+        setContentView(v);
         mOpenCvCameraView.setVisibility(CameraBridgeViewBase.VISIBLE);
         mOpenCvCameraView.setCvCameraViewListener(this);
 //        if (!OpenCVLoader.initDebug()) {
@@ -253,7 +287,7 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
             firstFrame = false;
 
             //For video, resize pixel size accordingly
-            pixelSizeMm = pixelSizeMm * (imageRefSizeX / (double) frame.width());
+            pixelSizeMm = pixelSizeMm * (imageRefSizeY / (double) frame.height());
             fpixel = focalLengthMm / pixelSizeMm;
             K = new Mat(3, 3, CvType.CV_64FC1);
             K.put(0, 0, fpixel);
@@ -265,6 +299,53 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
             K.put(2, 0, 0);
             K.put(2, 1, 0);
             K.put(2, 2, 1);
+
+            double zfar = 10000;
+            double znear = 1;
+            Matrix4 p = new Matrix4(new double[]
+                    {2.*fpixel / frame.width(),  0,0,0,
+                     0,   2. * fpixel / frame.height(), 0, 0,
+                     (frame.width()  - 2. * (frame.width() / 2)) / frame.width(), (-frame.height()  + 2. * (frame.height() / 2)) / frame.height(),(-zfar - znear) / (zfar - znear), -1,
+                      0, 0,     -2*zfar*znear / (zfar - znear), 0});
+            myRenderer.getCurrentCamera().setFarPlane(10000);
+            myRenderer.getCurrentCamera().setProjectionMatrix(p);
+            myRenderer.getCurrentCamera().getProjectionMatrix().multiply(Matrix4.createScaleMatrix(1, -1, -1));
+            //double p2 = 0.00112 * (imageRefSizeX / (double) 2560);
+            //double fov = Math.toDegrees(2 * Math.atan((2560 * p2) / (2 * focalLengthMm)));//(frame.width() * pixelSizeMm) / (2 * focalLengthMm)));
+            //myRenderer.setProjectionMatrix(fov, 2560, 1344);//frame.width(), frame.height());
+            //double p2 = 0.00112 * (imageRefSizeY / (double) frame.height());
+             //double fovy = Math.toDegrees(2 * Math.atan((frame.height() * pixelSizeMm) / (2 * focalLengthMm)));
+             //myRenderer.setProjectionMatrix(fovy, frame.width(), frame.height());
+            //myRenderer.setViewPort(frame.width(), frame.height());
+            //myRenderer.getCurrentCamera().getProjectionMatrix().scale(1, -1, -1);
+
+//            float nearPlane = 1.f;  // Near clipping distance
+//            float farPlane = 100000.0f;  // Far clipping distance
+//
+//            double[] projectionMatrix= new double[16];
+//            projectionMatrix[0] = -2.0f * fpixel / frame.width();
+//            projectionMatrix[1] = 0.0f;
+//            projectionMatrix[2] = 0.0f;
+//            projectionMatrix[3] = 0.0f;
+//
+//            projectionMatrix[4] = 0.0f;
+//            projectionMatrix[5] = 2.0f * fpixel / frame.height();
+//            projectionMatrix[6] = 0.0f;
+//            projectionMatrix[7] = 0.0f;
+//
+//            projectionMatrix[8] = 2.0f * (frame.width() / 2.) / frame.width() - 1.0f;
+//            projectionMatrix[9] = 2.0f * (frame.height()/2.) / frame.height() - 1.0f;
+//            projectionMatrix[10] = -(farPlane + nearPlane) / (farPlane - nearPlane);
+//            projectionMatrix[11] = -1.0f;
+//
+//            projectionMatrix[12] = 0.0f;
+//            projectionMatrix[13] = 0.0f;
+//            projectionMatrix[14] = -2.0f * farPlane * nearPlane / (farPlane - nearPlane);
+//            projectionMatrix[15] = 0.0f;
+//
+//            Matrix4 p = new Matrix4(projectionMatrix);
+//            p.transpose();
+//            myRenderer.getCurrentCamera().setProjectionMatrix(p);
         }
 
         Mat h = matcher.computeHomography(frame, algo);
@@ -288,11 +369,51 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
                 Imgproc.polylines(frame, Arrays.asList(intDst), true, new Scalar(255, 0, 0, 255), 3, Imgproc.LINE_AA);
             }
 
-            Mat proj = Utils.projectionMatrix(K, h);
-            frame = Utils.render(frame, myMesh, proj, myImgRef, true, null);
-            frame.convertTo(frame, CvType.CV_8UC3);
 
+
+//            Mat proj = Utils.projectionMatrix(K, h);
+//            frame = Utils.render(frame, myMesh, proj, myImgRef, true, null);
+//            frame.convertTo(frame, CvType.CV_8UC3);
+//
+//            if(drawFrame) {
+//                Utils.drawFrame(frame, proj, myImgRef);
+//            }
+
+            Mat translation = new Mat();
+            Mat rotation = new Mat(3, 3, K.type());
+            Utils.projectionMatrix(K, h, translation, rotation);
+
+            myRenderer.shouldDraw(true);
+            myRenderer.drawFrame(true);
+            myRenderer.translateMesh(myImgRef.width() / 2., -myImgRef.height() / 2.); //with opengl axis
+            myRenderer.translateMesh(myImgRef.width() / 2., myImgRef.height() / 2.); //with opencv axis
+            //nb : invert axis to fit opencv (just to help debugging). invert extr matrix because it wil be inverted by opengl
+            double ratioX = 2560. / frame.width();
+            double ratioY = 1344. / frame.height();
+            //Vector3 t = new Vector3(-translation.get(0, 0)[0] * ratioX, translation.get(1, 0)[0] * ratioY, translation.get(2, 0)[0]);
+            Vector3 t = new Vector3(translation.get(0, 0)[0], translation.get(1, 0)[0], translation.get(2, 0)[0]);
+            System.out.println(t);
+            double[] tmp = new double[16]; for(int i = 0; i < 16; i++) tmp[i] = 0;
+            tmp[15] = 1.;
+            Matrix4 r = new Matrix4();
+            for(int i = 0; i < 3; i++)
+                for(int j = 0; j < 3; j++)
+                    tmp[i + j * 4] = rotation.get(i, j)[0];
+
+            r.setAll(tmp);//r.inverse();
+            Log.i("INFOS translation", t.toString());
+            Log.i("INFOS rotation", r.toString());
+            Matrix4 res = new Matrix4();
+            res.setAll(t, new Vector3(1,1,1), new Quaternion().fromMatrix(r));
+            res.inverse();
+            t = res.getTranslation();
+            res.setTranslation(0,0,0);
+            myRenderer.setOrientationMatrix(t, res);
+            translation.release();
+            rotation.release();
             //res.recycle();
+        } else {
+            myRenderer.shouldDraw(false);
         }
 
         return frame;
@@ -458,7 +579,7 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
 //            buffer.get(bytes);
 //            Bitmap bitmap = BitmapFactory.decodeByteArray(bytes,0,bytes.length,null);
 //
-//            image.close();
+//
 //
 //            Mat frame = new Mat();//
 //            org.opencv.android.Utils.bitmapToMat(bitmap, frame);
@@ -536,13 +657,30 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
 //                //res.recycle();
 //            }
 //
-//            ImageView view2 = MainActivity.this.findViewById(R.id.imageView2);
+//            //ImageView view2 = MainActivity.this.findViewById(R.id.imageView2);
 //            Bitmap res = Bitmap.createBitmap(frame.width(), frame.height(), Bitmap.Config.ARGB_8888);
 //            org.opencv.android.Utils.matToBitmap(frame, res);
 //
-//            view2.setImageBitmap(null);
-//            view2.setImageBitmap(res);
-//            view2.invalidate();
+//            SurfaceView view2 = MainActivity.this.findViewById(R.id.imageView2);
+//            Canvas canvas = view2.getHolder().lockCanvas();
+//            if (canvas != null) {
+//                canvas.drawColor(0, android.graphics.PorterDuff.Mode.CLEAR);
+//
+//
+//                canvas.drawBitmap(res, new Rect(0,0,res.getWidth(), res.getHeight()),
+//                        new Rect(0,
+//                                0,
+//                                canvas.getWidth(),
+//                                canvas.getHeight()), null);
+//            }
+//
+//            view2.getHolder().unlockCanvasAndPost(canvas);
+//            frame.release();
+//            image.close();
+//
+////            view2.setImageBitmap(null);
+////            view2.setImageBitmap(res);
+////            view2.invalidate();
 //            //res.recycle();
 //
 //            // When a bitmap is downloaded you do:
@@ -628,8 +766,8 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
 //
 //        //ImageView view2 = MainActivity.this.findViewById(R.id.imageView2);
 //
-//        myImageWidth = 640;//1328;//5312;//view2.getMaxWidth();
-//        myImageHeight = 480;//747;//2988;//view2.getMaxHeight();
+//        myImageWidth = 1280;//640;//1328;//5312;//view2.getMaxWidth();
+//        myImageHeight = 720;//480;//747;//2988;//view2.getMaxHeight();
 //        //Log.i("here", view2.getMaxWidth() + " " + view2.getMaxWidth());
 //
 //        uiHandler = new Handler();
@@ -650,10 +788,10 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
 //        //
 //
 //        //
-//        ImageView view2 = this.findViewById(R.id.imageView2);
-//        Log.i("here", ""+testref);
-//        view2.setImageBitmap(testref);
-//        view2.invalidate();
+////        ImageView view2 = this.findViewById(R.id.imageView2);
+////        Log.i("here", ""+testref);
+////        view2.setImageBitmap(testref);
+////        view2.invalidate();
 //
 //        //Bitmap image = BitmapFactory.decodeResource(getResources(), R.drawable.frametest, o);
 //
@@ -730,18 +868,18 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
 //            }
 //
 //            StreamConfigurationMap map = characteristics.get(
-//                        CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
-//                if (map == null) {
-//                    return;
-//                }
+//                    CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+//            if (map == null) {
+//                return;
+//            }
 //
-//                // For still image captures, we use the largest available size.
-//                android.util.Size largest = Collections.max(
-//                        Arrays.asList(map.getOutputSizes(ImageFormat.JPEG)),
-//                        new CompareSizesByArea());
+//            // For still image captures, we use the largest available size.
+//            android.util.Size largest = Collections.max(
+//                    Arrays.asList(map.getOutputSizes(ImageFormat.JPEG)),
+//                    new CompareSizesByArea());
 //
 //            //myImageReader = ImageReader.newInstance(largest.getWidth(), largest.getHeight(), ImageFormat.JPEG, 1);//myImageWidth, myImageHeight, ImageFormat.JPEG, 1);//ImageFormat.YUV_420_888, 2);
-//            myImageReader = ImageReader.newInstance(myImageWidth, myImageHeight, ImageFormat.JPEG, 1);
+//            myImageReader = ImageReader.newInstance(myImageWidth, myImageHeight, ImageFormat.JPEG, 2);
 //            myImageReader.setOnImageAvailableListener(mOnImageAvailableListener, null);
 //            previewRequestBuilder.addTarget(myImageReader.getSurface());
 //
@@ -768,7 +906,7 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
 //                                // Finally, we start displaying the camera preview.
 //                                CaptureRequest previewRequest = previewRequestBuilder.build();
 //                                myCaptureSession.setRepeatingRequest(previewRequest, null, null);
-//                                        //myCaptureCallback, myBackgroundHandler);
+//                                //myCaptureCallback, myBackgroundHandler);
 //                            } catch (CameraAccessException e) {
 //                                e.printStackTrace();
 //                            }
