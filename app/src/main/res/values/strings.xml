@@ -1,4 +1,11 @@
 <resources>
     <string name="app_name">ARapp</string>
     <string name="action_settings">Settings</string>
+    <string name="rendering_settings">Rendering settings</string>
+    <string name="model_settings">Model settings</string>
+    <string name="draw_frame">Draw frame</string>
+    <string name="draw_border">Draw border</string>
+    <string name="draw_model">Draw model</string>
+    <string name="ok_button">OK</string>
+    <string name="cancel_button">Cancel</string>
 </resources>

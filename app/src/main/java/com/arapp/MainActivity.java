@@ -7,6 +7,7 @@ import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
+import android.graphics.Color;
 import android.graphics.ImageFormat;
 import android.graphics.Rect;
 import android.graphics.SurfaceTexture;
@@ -20,6 +21,7 @@ import android.media.ImageReader;
 import android.os.Bundle;
 import android.os.Handler;
 import android.support.annotation.NonNull;
+import android.support.design.widget.FloatingActionButton;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
@@ -31,15 +33,19 @@ import android.view.Menu;
 import android.view.MenuItem;
 import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraCaptureSession;
+import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.Toast;
 
 import com.ar.core.Matcher;
 import com.ar.core.Utils;
 import com.ar.loader3d.ObjLoader;
+import com.ar.renderer.ARRenderer;
+import com.ar.renderer.OpenCVRenderer;
 import com.ar.renderer.OpenGLRenderer;
 
 import org.opencv.BuildConfig;
@@ -90,8 +96,14 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
     //Surface used for the preview process
     Surface myPreviewSurface;
     private ObjLoader myMesh;
+    protected boolean myIsFabExpanded;
 
-    protected OpenGLRenderer myRenderer;
+    protected ARRenderer myRenderer;
+
+    public enum RendererType {
+        OPENCV,
+        OPENGL
+    }
 
     final int CAMERA_PERMISSION_CODE = 1;
 
@@ -103,6 +115,10 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
     boolean drawFrame = false;
     boolean drawMatches = false;
     boolean drawBorder = true;
+
+    boolean myShouldDrawBorder;
+    boolean myShouldDrawFrame;
+    boolean myShouldDrawModel;
 
     //Camera parameters
     int imageRefSizeX = 5312;//5312 x 2988 #nb imgref was redim, we cannot use it
@@ -165,37 +181,78 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
         super.onCreate(savedInstanceState);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
-        //setContentView(R.layout.activity_main_new);
+        setContentView(R.layout.activity_main_new);
 
-        org.rajawali3d.view.SurfaceView rajawaliView = new org.rajawali3d.view.SurfaceView(this);
-        rajawaliView.setZOrderMediaOverlay(true);
-        rajawaliView.setTransparent(true);
-        myRenderer = new OpenGLRenderer(this);
-        myRenderer.setViewPort(1920, 1080);
-        rajawaliView.setSurfaceRenderer(myRenderer);
-        rajawaliView.setRenderMode(ISurface.RENDERMODE_WHEN_DIRTY);
+        initializeRenderer(RendererType.OPENCV);
 
-        //myRenderer.setRenderSurface(rawajaliView);
+        myIsFabExpanded = false;
 
-        FrameLayout v = new FrameLayout(this);
-        v.addView(rajawaliView);
-        ViewGroup.LayoutParams params = rajawaliView.getLayoutParams();
-        params.width = ViewGroup.LayoutParams.MATCH_PARENT;
-        rajawaliView.setLayoutParams(params);
-        //mOpenCvCameraView = (CameraBridgeViewBase) findViewById(R.id.imageView2);
-        mOpenCvCameraView = new JavaCameraView(this, -1);
-        v.addView(mOpenCvCameraView);
-        setContentView(v);
+        myShouldDrawBorder = true;
+        myShouldDrawFrame = true;
+        myShouldDrawModel = true;
+
+        FloatingActionButton fabSettings = this.findViewById(R.id.fabSettings);
+        fabSettings.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                if (myIsFabExpanded == true){
+                    closeSubMenusFab();
+                } else {
+                    openSubMenusFab();
+                }
+            }
+        });
+
+        closeSubMenusFab();
+
+        FloatingActionButton fabRenderingSettings = this.findViewById(R.id.fabRenderingSettings);
+        fabRenderingSettings.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+               RenderingSettingsDlg dlg = new RenderingSettingsDlg(MainActivity.this,
+                       myRenderer.isDrawBorder(), myRenderer.isDrawFrame(), myRenderer.isDrawModel());
+               boolean validated = dlg.openModalDialog();
+               if(validated) {
+                   myShouldDrawBorder = dlg.isDrawBorder();
+                   myShouldDrawFrame = dlg.isDrawFrame();
+                   myShouldDrawModel = dlg.isDrawModel();
+               }
+            }
+        });
+
+        FloatingActionButton fabModelSettings = this.findViewById(R.id.fabModelSettings);
+        fabModelSettings.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                //RenderingSettingsDlg dlg = new RenderingSettingsDlg();
+                //dlg.show();
+            }
+        });
+
+//        org.rajawali3d.view.SurfaceView rajawaliView = new org.rajawali3d.view.SurfaceView(this);
+//        rajawaliView.setZOrderMediaOverlay(true);
+//        rajawaliView.setTransparent(true);
+//        myRenderer = new OpenGLRenderer(this);
+//        //myRenderer.setViewPort(1920, 1080);
+//        rajawaliView.setSurfaceRenderer(myRenderer);
+//        rajawaliView.setRenderMode(ISurface.RENDERMODE_WHEN_DIRTY);
+//
+//        //myRenderer.setRenderSurface(rawajaliView);
+//
+//        FrameLayout frameLayout = findViewById(R.id.rootLayout);
+//        //FrameLayout v = new FrameLayout(this);
+//        frameLayout.addView(rajawaliView, 0);
+//        myRenderer.setViewPort(1920, 1080);
+//        ViewGroup.LayoutParams params = rajawaliView.getLayoutParams();
+//        params.width = ViewGroup.LayoutParams.MATCH_PARENT;
+//        rajawaliView.setLayoutParams(params);
+        mOpenCvCameraView = (CameraBridgeViewBase) findViewById(R.id.imageView2);
+        //mOpenCvCameraView = new JavaCameraView(this, -1);
+        //v.addView(mOpenCvCameraView);
+        //setContentView(v);
         mOpenCvCameraView.setVisibility(CameraBridgeViewBase.VISIBLE);
         mOpenCvCameraView.setCvCameraViewListener(this);
-//        if (!OpenCVLoader.initDebug()) {
-//            Log.d(TAG, "Internal OpenCV library not found. Using OpenCV Manager for initialization");
-//            OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION_3_0_0, this, mLoaderCallback);
-//        } else {
-//            Log.d(TAG, "OpenCV library found inside package. Using it!");
-//            mLoaderCallback.onManagerConnected(LoaderCallbackInterface.SUCCESS);
-//        }
-//        matcher = new Matcher();
+
 
         InputStream stream = getResources().openRawResource(R.raw.fox2);
         BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8));
@@ -212,6 +269,31 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
 //        mItemPreviewCanny = menu.add("Canny");
 //        mItemPreviewFeatures = menu.add("Find features");
         return true;
+    }
+
+    private void closeSubMenusFab(){
+        LinearLayout layoutFabRendering = this.findViewById(R.id.layoutRenderingSettings);
+        LinearLayout layoutFabModel = this.findViewById(R.id.layoutFabModelSettings);
+
+        layoutFabRendering.setVisibility(View.INVISIBLE);
+        layoutFabModel.setVisibility(View.INVISIBLE);
+
+        FloatingActionButton fabSettings = this.findViewById(R.id.fabSettings);
+        fabSettings.setImageResource(R.drawable.ic_settings_black_24dp);
+        myIsFabExpanded = false;
+    }
+
+    //Opens FAB submenus
+    private void openSubMenusFab(){
+        LinearLayout layoutFabRendering = this.findViewById(R.id.layoutRenderingSettings);
+        LinearLayout layoutFabModel = this.findViewById(R.id.layoutFabModelSettings);
+        layoutFabRendering.setVisibility(View.VISIBLE);
+        layoutFabModel.setVisibility(View.VISIBLE);
+
+        //Change settings icon to 'X' icon
+        FloatingActionButton fabSettings = this.findViewById(R.id.fabSettings);
+        fabSettings.setImageResource(R.drawable.ic_close_black_24dp);
+        myIsFabExpanded = true;
     }
 
     @Override
@@ -255,29 +337,20 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
 
     public Mat onCameraFrame(CameraBridgeViewBase.CvCameraViewFrame inputFrame) {
         Mat frame = inputFrame.rgba();
-        //org.opencv.imgproc.Imgproc.cvtColor(frame, frame, Imgproc.COLOR_BGR2GRAY);
-
-        //yuv ?
-//           Mat buf = new Mat(image.getHeight(), image.getWidth(), CvType.CV_8UC1);
-//           org.opencv.android.Utils.
-//           ByteBuffer buffer = image.getPlanes()[0].getBuffer();
-//           byte[] bytes = new byte[buffer.remaining()];
-//           buffer.get(bytes);
-//           buf.put(0, 0, bytes);
-//
-//            Mat mat = Imgcodecs.imdecode(buf, Imgcodecs.IMREAD_COLOR);
-        BitmapFactory.Options o = new BitmapFactory.Options();
-        o.inScaled = false;
-
-        //Bitmap b = BitmapFactory.decodeResource(getResources(), R.drawable.frametest, o);
-
-
-        //org.opencv.android.Utils.bitmapToMat(b, frame);
-        //b.recycle();
 
         if (firstFrame) {
             //InputStream stream = getResources().openRawResource(R.raw.ref2corrigee);
+//            myRenderer.setViewPort(frame.width(), frame.height());
+//            final FrameLayout frameLayout = (FrameLayout) findViewById(R.id.rootLayout);
+//            new Handler().post(new Runnable() {public void run() {frameLayout.invalidate();}});
+//            frameLayout.getChildAt(0);
+//            //FrameLayout v = new FrameLayout(this);
+//            ViewGroup.LayoutParams params = rajawaliView.getLayoutParams();
+//            params.width = ViewGroup.LayoutParams.MATCH_PARENT;
+//            rajawaliView.setLayoutParams(params);
 
+            BitmapFactory.Options o = new BitmapFactory.Options();
+            o.inScaled = false;
             Bitmap ref = BitmapFactory.decodeResource(getResources(), R.drawable.ref2corrigee, o);
 
             myImgRef = new Mat();
@@ -286,90 +359,21 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
             matcher.computeReferenceImage(myImgRef, algo);
             firstFrame = false;
 
+
             //For video, resize pixel size accordingly
             pixelSizeMm = pixelSizeMm * (imageRefSizeY / (double) frame.height());
             fpixel = focalLengthMm / pixelSizeMm;
-            K = new Mat(3, 3, CvType.CV_64FC1);
-            K.put(0, 0, fpixel);
-            K.put(0, 1, 0.);
-            K.put(0, 2, frame.width() / 2.);
-            K.put(1, 0, 0);
-            K.put(1, 1, fpixel);
-            K.put(1, 2, frame.height() / 2.);
-            K.put(2, 0, 0);
-            K.put(2, 1, 0);
-            K.put(2, 2, 1);
+            K = Utils.computeIntrinsicParamsMatrix(pixelSizeMm, focalLengthMm,
+                                frame.width() / 2., frame.height() / 2.);
 
-            double zfar = 10000;
-            double znear = 1;
-            Matrix4 p = new Matrix4(new double[]
-                    {2.*fpixel / frame.width(),  0,0,0,
-                     0,   2. * fpixel / frame.height(), 0, 0,
-                     (frame.width()  - 2. * (frame.width() / 2)) / frame.width(), (-frame.height()  + 2. * (frame.height() / 2)) / frame.height(),(-zfar - znear) / (zfar - znear), -1,
-                      0, 0,     -2*zfar*znear / (zfar - znear), 0});
-            myRenderer.getCurrentCamera().setFarPlane(10000);
-            myRenderer.getCurrentCamera().setProjectionMatrix(p);
-            myRenderer.getCurrentCamera().getProjectionMatrix().multiply(Matrix4.createScaleMatrix(1, -1, -1));
-            //double p2 = 0.00112 * (imageRefSizeX / (double) 2560);
-            //double fov = Math.toDegrees(2 * Math.atan((2560 * p2) / (2 * focalLengthMm)));//(frame.width() * pixelSizeMm) / (2 * focalLengthMm)));
-            //myRenderer.setProjectionMatrix(fov, 2560, 1344);//frame.width(), frame.height());
-            //double p2 = 0.00112 * (imageRefSizeY / (double) frame.height());
-             //double fovy = Math.toDegrees(2 * Math.atan((frame.height() * pixelSizeMm) / (2 * focalLengthMm)));
-             //myRenderer.setProjectionMatrix(fovy, frame.width(), frame.height());
-            //myRenderer.setViewPort(frame.width(), frame.height());
-            //myRenderer.getCurrentCamera().getProjectionMatrix().scale(1, -1, -1);
-
-//            float nearPlane = 1.f;  // Near clipping distance
-//            float farPlane = 100000.0f;  // Far clipping distance
-//
-//            double[] projectionMatrix= new double[16];
-//            projectionMatrix[0] = -2.0f * fpixel / frame.width();
-//            projectionMatrix[1] = 0.0f;
-//            projectionMatrix[2] = 0.0f;
-//            projectionMatrix[3] = 0.0f;
-//
-//            projectionMatrix[4] = 0.0f;
-//            projectionMatrix[5] = 2.0f * fpixel / frame.height();
-//            projectionMatrix[6] = 0.0f;
-//            projectionMatrix[7] = 0.0f;
-//
-//            projectionMatrix[8] = 2.0f * (frame.width() / 2.) / frame.width() - 1.0f;
-//            projectionMatrix[9] = 2.0f * (frame.height()/2.) / frame.height() - 1.0f;
-//            projectionMatrix[10] = -(farPlane + nearPlane) / (farPlane - nearPlane);
-//            projectionMatrix[11] = -1.0f;
-//
-//            projectionMatrix[12] = 0.0f;
-//            projectionMatrix[13] = 0.0f;
-//            projectionMatrix[14] = -2.0f * farPlane * nearPlane / (farPlane - nearPlane);
-//            projectionMatrix[15] = 0.0f;
-//
-//            Matrix4 p = new Matrix4(projectionMatrix);
-//            p.transpose();
-//            myRenderer.getCurrentCamera().setProjectionMatrix(p);
+            myRenderer.setIntrinsicParamsMatrix(K);
+            //myRenderer.translateMesh(myImgRef.width() / 2., -myImgRef.height() / 2.); //with opengl axis
+            myRenderer.setModelPosition(myImgRef.width() / 2., myImgRef.height() / 2., 0); //with opencv axis
         }
 
         Mat h = matcher.computeHomography(frame, algo);
         //h.convertTo(h, CvType.CV_32F);
         if (h != null && !h.empty()) {
-            if (drawBorder) {
-                Size size = myImgRef.size();
-                MatOfPoint2f pts = new MatOfPoint2f(new Point(0f, 0f),
-                        new Point(0f, size.height - 1),
-                        new Point(size.width - 1, size.height - 1),
-                        new Point(size.width - 1, 0));
-                MatOfPoint2f dst = new MatOfPoint2f();
-
-                //Log.i("h=", h.dump());
-                Core.perspectiveTransform(pts, dst, h);
-                //Log.i("dst=", dst.dump());
-                MatOfPoint intDst = new MatOfPoint();
-                dst.convertTo(intDst, CvType.CV_32S);
-
-                //connect them with lines
-                Imgproc.polylines(frame, Arrays.asList(intDst), true, new Scalar(255, 0, 0, 255), 3, Imgproc.LINE_AA);
-            }
-
-
 
 //            Mat proj = Utils.projectionMatrix(K, h);
 //            frame = Utils.render(frame, myMesh, proj, myImgRef, true, null);
@@ -379,41 +383,23 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
 //                Utils.drawFrame(frame, proj, myImgRef);
 //            }
 
+            myRenderer.shouldDrawBorder(myShouldDrawBorder);
+            myRenderer.shouldDrawFrame(myShouldDrawFrame);
+            myRenderer.shouldDrawModel(myShouldDrawModel);
+
             Mat translation = new Mat();
             Mat rotation = new Mat(3, 3, K.type());
-            Utils.projectionMatrix(K, h, translation, rotation);
+            Mat proj = Utils.projectionMatrix(K, h, translation, rotation);
 
-            myRenderer.shouldDraw(true);
-            myRenderer.drawFrame(true);
-            //myRenderer.translateMesh(myImgRef.width() / 2., -myImgRef.height() / 2.); //with opengl axis
-            myRenderer.translateMesh(myImgRef.width() / 2., myImgRef.height() / 2.); //with opencv axis
-            //nb : invert axis to fit opencv (just to help debugging). invert extr matrix because it wil be inverted by opengl
-            double ratioX = 2560. / frame.width();
-            double ratioY = 1344. / frame.height();
-            //Vector3 t = new Vector3(-translation.get(0, 0)[0] * ratioX, translation.get(1, 0)[0] * ratioY, translation.get(2, 0)[0]);
-            Vector3 t = new Vector3(translation.get(0, 0)[0], translation.get(1, 0)[0], translation.get(2, 0)[0]);
-            System.out.println(t);
-            double[] tmp = new double[16]; for(int i = 0; i < 16; i++) tmp[i] = 0;
-            tmp[15] = 1.;
-            Matrix4 r = new Matrix4();
-            for(int i = 0; i < 3; i++)
-                for(int j = 0; j < 3; j++)
-                    tmp[i + j * 4] = rotation.get(i, j)[0];
+            myRenderer.setExtrinsicMatrix(translation, rotation);
+            myRenderer.render(frame, h, proj, myImgRef.width(), myImgRef.height());
 
-            r.setAll(tmp);//r.inverse();
-            Log.i("INFOS translation", t.toString());
-            Log.i("INFOS rotation", r.toString());
-            Matrix4 res = new Matrix4();
-            res.setAll(t, new Vector3(1,1,1), new Quaternion().fromMatrix(r));
-            res.inverse();
-            t = res.getTranslation();
-            res.setTranslation(0,0,0);
-            myRenderer.setOrientationMatrix(t, res);
             translation.release();
             rotation.release();
-            //res.recycle();
         } else {
-            myRenderer.shouldDraw(false);
+            myRenderer.shouldDrawModel(false);
+            myRenderer.shouldDrawBorder(false);
+            myRenderer.shouldDrawFrame(false);
         }
 
         return frame;
@@ -438,6 +424,33 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
     public void askForCameraPermission() {
         if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_DENIED)
             ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION_CODE);
+    }
+
+    public void initializeRenderer(RendererType type) {
+        if(type == RendererType.OPENCV) {
+            Color c = new Color();
+
+            myRenderer = new OpenCVRenderer(this, 250,60,10);
+        } else {
+            org.rajawali3d.view.SurfaceView rajawaliView = new org.rajawali3d.view.SurfaceView(this);
+            rajawaliView.setZOrderMediaOverlay(true);
+            rajawaliView.setTransparent(true);
+            OpenGLRenderer renderer = new OpenGLRenderer(this);
+            myRenderer = renderer;
+            //myRenderer.setViewPort(1920, 1080);
+            rajawaliView.setSurfaceRenderer(renderer);
+            rajawaliView.setRenderMode(ISurface.RENDERMODE_WHEN_DIRTY);
+
+            //myRenderer.setRenderSurface(rawajaliView);
+
+            FrameLayout frameLayout = findViewById(R.id.rootLayout);
+            //FrameLayout v = new FrameLayout(this);
+            frameLayout.addView(rajawaliView, 0);
+            renderer.setViewPort(1920, 1080);
+            ViewGroup.LayoutParams params = rajawaliView.getLayoutParams();
+            params.width = ViewGroup.LayoutParams.MATCH_PARENT;
+            rajawaliView.setLayoutParams(params);
+        }
     }
 
 }

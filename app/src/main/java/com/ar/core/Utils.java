@@ -15,10 +15,8 @@ import com.ar.loader3d.ObjLoader.Vector3;
 
 public class Utils {
 
-    static public void drawFrame(Mat image, Mat projection, Mat model) {
-        Size size = model.size();
-        float scaleFactor = 1000;
-        Point3 translation = new Point3(size.width / 2.f, size.height / 2.f, 0);
+    static public void drawFrame(Mat image, Mat projection, double translateX, double translateY, double scaleFactor) {
+        //Point3 translation = new Point3(size.width / 2.f, size.height / 2.f, 0);
         MatOfPoint3f xPoints = new MatOfPoint3f(new Point3(0f, 0f, 0f), new Point3(scaleFactor, 0, 0));
         MatOfPoint3f yPoints = new MatOfPoint3f(new Point3(0f, 0f, 0f), new Point3(0, scaleFactor, 0));
         MatOfPoint3f zPoints = new MatOfPoint3f(new Point3(0f, 0f, 0f), new Point3(0,0, scaleFactor));
@@ -262,10 +260,10 @@ public class Utils {
      * @param homography       Computed homography
      * @return The computed 3D projection matrix
      */
-    static public void projectionMatrix(Mat cameraParameters, Mat homography, Mat translation, Mat R) {
+    static public Mat projectionMatrix(Mat cameraParameters, Mat homography, Mat translation, Mat R) {
         //From the camera calibration matrix and the estimated homography
         //compute the 3D projection matrix
-        //Core.multiply(homography, new Scalar(-1), homography);
+
         //Recover the extrinsic matrix M: M = K-1 * H in the 2D case
         Mat M = new Mat();
         Core.gemm(cameraParameters.inv(), homography, 1, new Mat(), 0, M);
@@ -286,9 +284,6 @@ public class Utils {
         //Normalize the last column (translation) by the average lambda
         //Mat t2 = new Mat();
         Core.multiply(M.col(2), new Scalar(1. / _lambda), translation);
-        //System.out.println(_lambda);
-        //System.out.println(translation.dump());
-        //System.out.println(t2.dump());
 
         //Construct the rotation matrix
         M0.copyTo(R.col(0));
@@ -313,32 +308,27 @@ public class Utils {
         R.col(1).copyTo(extr.col(1));
         R.col(2).copyTo(extr.col(2));
         translation.copyTo(extr.col(3));
+
+        //Compute the projection matrix H = K * extr
+        Mat res = new Mat();
+        Core.gemm(cameraParameters, extr, 1, new Mat(), 0, res);
+
+        return res;
     }
 
-    public void drawFrame() {
-        //	    #
-//	#    point = np.array([[0,0,0], [1,0,0]])
-//	#    point = np.dot(point, scale_matrix)
-//	#    point = np.array([[p[0] + w / 2, p[1] + h / 2, p[2]] for p in point])
-//	#    dst = cv2.perspectiveTransform(point.reshape(-1, 1, 3), projection)
-//	#    imgpts = np.int32(dst)
-//	#    img = cv2.polylines(img, [np.int32(dst)], False, (0,0, 255), 3, cv2.LINE_AA)
-//	#
-//	#    point = np.array([[0,0,0], [0,1,0]])
-//	#    point = np.dot(point, scale_matrix)
-//	#    point = np.array([[p[0] + w / 2, p[1] + h / 2, p[2]] for p in point])
-//	#    dst = cv2.perspectiveTransform(point.reshape(-1, 1, 3), projection)
-//	#    imgpts = np.int32(dst)
-//	#    img = cv2.polylines(img, [np.int32(dst)], False, (0,255, 0), 3, cv2.LINE_AA)
-//	#
-//	#    point = np.array([[0,0,0], [0,0,1]])
-//	#    point = np.dot(point, scale_matrix)
-//	#    point = np.array([[p[0] + w / 2, p[1] + h / 2, p[2]] for p in point])
-//	#    dst = cv2.perspectiveTransform(point.reshape(-1, 1, 3), projection)
-//	#    imgpts = np.int32(dst)
-//	#    img = cv2.polylines(img, [np.int32(dst)], False, (255,0, 0), 3, cv2.LINE_AA)
-//	#
-//	#    return img
-    }
+    static public Mat computeIntrinsicParamsMatrix(double pixelSizeMm, double focalLengthMm, double ppx, double ppy) {
+        double fpixel = focalLengthMm / pixelSizeMm;
+        Mat K = new Mat(3, 3, CvType.CV_64FC1);
+        K.put(0, 0, fpixel);
+        K.put(0, 1, 0.);
+        K.put(0, 2, ppx);
+        K.put(1, 0, 0);
+        K.put(1, 1, fpixel);
+        K.put(1, 2, ppy);
+        K.put(2, 0, 0);
+        K.put(2, 1, 0);
+        K.put(2, 2, 1);
 
+        return K;
+    }
 }
