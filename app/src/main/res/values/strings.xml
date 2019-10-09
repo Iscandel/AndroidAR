@@ -6,6 +6,9 @@
     <string name="draw_frame">Draw frame</string>
     <string name="draw_border">Draw border</string>
     <string name="draw_model">Draw model</string>
+    <string name="opengl_renderer">OpenGL renderer</string>
     <string name="ok_button">OK</string>
     <string name="cancel_button">Cancel</string>
+    <string name="fox_model">Fox model</string>
+    <string name="dona_model">Dona model</string>
 </resources>

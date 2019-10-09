@@ -14,63 +14,77 @@ import org.opencv.core.MatOfPoint;
 import org.opencv.core.MatOfPoint2f;
 import org.opencv.core.Point;
 import org.opencv.core.Scalar;
-import org.opencv.core.Size;
 import org.opencv.imgproc.Imgproc;
 import org.rajawali3d.Object3D;
-import org.rajawali3d.lights.DirectionalLight;
 import org.rajawali3d.loader.LoaderOBJ;
 import org.rajawali3d.loader.ParsingException;
 import org.rajawali3d.materials.Material;
 import org.rajawali3d.materials.methods.DiffuseMethod;
 import org.rajawali3d.materials.textures.ATexture;
 import org.rajawali3d.materials.textures.Texture;
-import org.rajawali3d.materials.textures.TextureManager;
 import org.rajawali3d.math.Matrix4;
 import org.rajawali3d.math.Quaternion;
 import org.rajawali3d.math.vector.Vector3;
 import org.rajawali3d.primitives.Line3D;
-import org.rajawali3d.primitives.Sphere;
 import org.rajawali3d.renderer.Renderer;
 
 import java.util.Arrays;
 import java.util.Stack;
 
+/**
+ * OpenGL based renderer
+ */
 public class OpenGLRenderer extends Renderer implements ARRenderer{
 
     protected Object3D myMesh;
-    int myFramerate = 10;
+    protected int myFramerate = 10;
 
-    Line3D myAxisX;
-    Line3D myAxisY;
-    Line3D myAxisZ;
+    protected Line3D myAxisX;
+    protected Line3D myAxisY;
+    protected Line3D myAxisZ;
 
-    Line3D myLine1;
-    Line3D myLine2;
-    Line3D myLine3;
+    protected Line3D myLine1;
+    protected Line3D myLine2;
+    protected Line3D myLine3;
 
-    boolean myShouldDrawBorder;
+    protected boolean myShouldDrawBorder;
+    protected boolean myShouldDrawFrame;
+    protected boolean myShouldDrawModel;
+
+    protected boolean myIsAskDrawing;
+
+    protected boolean myIsInit;
+
+    protected ModelType myModelType;
 
     private final String TAG = OpenGLRenderer.class.getSimpleName();
-
-    //
-    private DirectionalLight directionalLight;
-    private Sphere earthSphere;
 
     public OpenGLRenderer(Context context) {
         super(context);
         setFrameRate(myFramerate);
+        myShouldDrawBorder = true;
+        myShouldDrawFrame = true;
+        myShouldDrawModel = true;
+        myIsInit = false;
     }
 
     public OpenGLRenderer(Context context, Matrix4 proj) {
         super(context);
         setFrameRate(myFramerate);
         myShouldDrawBorder = true;
+        myShouldDrawFrame = true;
+        myShouldDrawModel = true;
+        myIsInit = false;
     }
 
     public OpenGLRenderer(Context context, double fov, int width, int height) {
         super(context);
         setFrameRate(myFramerate);
         setProjectionMatrix(fov, width, height);
+        myShouldDrawBorder = true;
+        myShouldDrawFrame = true;
+        myShouldDrawModel = true;
+        myIsInit = false;
     }
 
     public void setProjectionMatrix(double fov, int width, int height) {
@@ -79,81 +93,22 @@ public class OpenGLRenderer extends Renderer implements ARRenderer{
         getCurrentCamera().setFarPlane(100000);
     }
 
-    public void shouldDraw(boolean draw) {
-        if(myMesh != null)
-            myMesh.setVisible(draw);
-    }
-
     @Override
     protected void initScene() {
-////        directionalLight = new DirectionalLight(1f, .2f, -1.0f);
-////        directionalLight.setColor(1.0f, 1.0f, 1.0f);
-////        directionalLight.setPower(2);
-//        //getCurrentScene().addLight(directionalLight);
-//
-//        Material material = new Material();
-//       // material.enableLighting(false);
-//        //material.setDiffuseMethod(new DiffuseMethod.Lambert());
-//        material.setColor(new float[]{0, 0, 0, 0});
-//int a = getViewportWidth();
-//
-//        Texture meshTexture = new Texture("modelTexture", R.drawable.annaleiva);
-//        try {
-//            material.addTexture(meshTexture);
-//        } catch(ATexture.TextureException ex) {
-//            Log.e(TAG, "Error while loading mesh texture");
-//        }
-////        earthSphere = new Sphere(1, 24, 24);
-////        //earthSphere.setColor(new Vector3(255, 0, 0));
-////        earthSphere.setMaterial(material);
-////        getCurrentScene().addChild(earthSphere);
-////        getCurrentCamera().setZ(4.2f);
-//
-//        //getCurrentCamera().setProjectionMatrix(myProjMatrix);
-//        LoaderOBJ objParser = new LoaderOBJ(mContext.getResources(),
-//                mTextureManager, R.raw.donateodora);
-//
-//        try {
-//            objParser.parse();
-//        } catch (ParsingException e) {
-//
-//            e.printStackTrace();
-//        }
-//
-//        myMesh = objParser.getParsedObject();
-//        //myMesh.setColor(new Vector3(255, 0, 0));
-//        //myMesh.setPosition(0, 0, 0);
-//        myMesh.setMaterial(material);
-//        myMesh.setScale(180, -180, -180);
-//        myMesh.setRotation(Vector3.Axis.X, -90);
-//        //getCurrentCamera().setPosition(0, 0, 100);
-//
-//        getCurrentScene().addChild(myMesh);
-
         setModel(ModelType.DONA);
-
         addFrame();
+
+        myIsInit = true;
+        askDrawing(false);
     }
 
-    public void drawFrame(boolean draw) {
-        myAxisX.setVisible(draw);
-        myAxisY.setVisible(draw);
-        myAxisZ.setVisible(draw);
-
-        if(myLine1 != null) {
-            myLine1.setVisible(draw);
-            myLine2.setVisible(draw);
-            myLine3.setVisible(draw);
-        }
-    }
-
-    public void addFrame() {
+    protected void addFrame() {
         double scale = 1000;
-        Stack<Vector3> xPoints = new Stack();
+        Stack<Vector3> xPoints = new Stack<>();
         xPoints.push(new Vector3(0,0,0)); xPoints.push(new Vector3(scale,0,0));
-        Stack<Vector3> yPoints = new Stack();
+        Stack<Vector3> yPoints = new Stack<>();
         yPoints.push(new Vector3(0,0,0)); yPoints.push(new Vector3(0,scale,0));
-        Stack<Vector3> zPoints = new Stack();
+        Stack<Vector3> zPoints = new Stack<>();
         zPoints.push(new Vector3(0,0,0)); zPoints.push(new Vector3(0,0,scale));
         myAxisX = new Line3D(xPoints, 10, Color.argb(255, 255, 0, 0));
         myAxisY = new Line3D(yPoints, 10, Color.argb(255, 0, 255, 0));
@@ -170,8 +125,6 @@ public class OpenGLRenderer extends Renderer implements ARRenderer{
         getCurrentScene().addChild(myAxisX);
         getCurrentScene().addChild(myAxisY);
         getCurrentScene().addChild(myAxisZ);
-
-
     }
 
     void test() {
@@ -183,13 +136,13 @@ public class OpenGLRenderer extends Renderer implements ARRenderer{
         Vector3 pointLeftB = unProject(0, getViewportHeight(), dist);
         Vector3 pointRightT = unProject(getViewportWidth(), 0, dist);
         Vector3 pointRightB = unProject(getViewportWidth(), getViewportHeight(), dist);
-        Stack<Vector3> points = new Stack();
+        Stack<Vector3> points = new Stack<>();
         points.push(pointLeftT); points.push(pointLeftB);
         myLine1 = new Line3D(points, 10, Color.argb(255, 255, 255, 255));
-        points = new Stack();
+        points = new Stack<>();
         points.push(pointLeftT); points.push(pointRightT);
         myLine2 = new Line3D(points, 10, Color.argb(255, 255, 255, 255));
-        points = new Stack();
+        points = new Stack<>();
         points.push(pointLeftB); points.push(pointRightB);
         myLine3 = new Line3D(points, 10, Color.argb(255, 255, 255, 255));
 
@@ -207,30 +160,21 @@ public class OpenGLRenderer extends Renderer implements ARRenderer{
 
     @Override
     public void onOffsetsChanged(float xOffset, float yOffset, float xOffsetStep, float yOffsetStep, int xPixelOffset, int yPixelOffset) {
-
     }
 
     public void setOrientationMatrix(Vector3 position, Matrix4 rotation)
     {
-        //myMesh.setPosition(-position.x, -position.y, -position.y);
-        //System.out.println("ET DONC " + getCurrentCamera().getNearPlane() + " " + getCurrentCamera().getFarPlane());
         getCurrentCamera().setPosition(position);
         getCurrentCamera().setRotation(rotation);
-        test();
+        //test();
     }
 
     @Override
     public void onTouchEvent(MotionEvent event) {
-
-    }
-
-    public void translateMesh(double x, double y) {
-        myMesh.setPosition(x, y, 0);
     }
 
     @Override
     public void setIntrinsicParamsMatrix(Mat K) {
-
         double fpixel = K.get(0,0)[0];
         double width = K.get(0, 2)[0] * 2;
         double height =  K.get(1, 2)[0] * 2;
@@ -277,6 +221,9 @@ public class OpenGLRenderer extends Renderer implements ARRenderer{
 
     @Override
     public Mat render(Mat frame, Mat homography, Mat proj, int imgRefWidth, int imgRefHeight) {
+        if(!myIsAskDrawing)
+            return frame;
+
         if(myShouldDrawBorder) {
             MatOfPoint2f pts = new MatOfPoint2f(new Point(0f, 0f),
                     new Point(0f, imgRefHeight - 1),
@@ -299,15 +246,12 @@ public class OpenGLRenderer extends Renderer implements ARRenderer{
 
     @Override
     public void shouldDrawModel(boolean draw) {
-        if(myMesh != null)
-            myMesh.setVisible(draw);
+        myShouldDrawModel = draw;
     }
 
     @Override
     public void shouldDrawFrame(boolean draw) {
-        myAxisX.setVisible(draw);
-        myAxisY.setVisible(draw);
-        myAxisZ.setVisible(draw);
+        myShouldDrawFrame = draw;
 
         if(myLine1 != null) {
             myLine1.setVisible(draw);
@@ -318,7 +262,23 @@ public class OpenGLRenderer extends Renderer implements ARRenderer{
 
     @Override
     public void shouldDrawBorder(boolean draw) {
-        myShouldDrawBorder = true;
+        myShouldDrawBorder = draw;
+    }
+
+    @Override
+    public void askDrawing(boolean ask){
+        if(!myIsInit)
+            return;
+
+        myIsAskDrawing = ask;
+
+        boolean draw = myIsAskDrawing ? myShouldDrawFrame : false;
+        myAxisX.setVisible(draw);
+        myAxisY.setVisible(draw);
+        myAxisZ.setVisible(draw);
+
+        draw = myIsAskDrawing & myShouldDrawModel;
+        myMesh.setVisible(draw);
     }
 
     @Override
@@ -328,12 +288,12 @@ public class OpenGLRenderer extends Renderer implements ARRenderer{
 
     @Override
     public boolean isDrawFrame() {
-        return myAxisX.isVisible();
+        return myShouldDrawFrame;
     }
 
     @Override
     public boolean isDrawModel() {
-        return myMesh.isVisible();
+        return myShouldDrawModel;
     }
 
     @Override
@@ -375,6 +335,8 @@ public class OpenGLRenderer extends Renderer implements ARRenderer{
         myMesh.setMaterial(material);
 
         getCurrentScene().addChild(myMesh);
+
+        myModelType = type;
     }
 
     @Override
@@ -394,5 +356,10 @@ public class OpenGLRenderer extends Renderer implements ARRenderer{
         if(myMesh != null) {
             myMesh.setRotation(axisX, axisY, axisZ, angleDegrees);
         }
+    }
+
+    @Override
+    public ModelType getCurrentModelType() {
+        return myModelType;
     }
 }

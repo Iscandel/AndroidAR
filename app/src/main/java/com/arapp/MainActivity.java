@@ -20,15 +20,14 @@ import android.media.Image;
 import android.media.ImageReader;
 import android.os.Bundle;
 import android.os.Handler;
-import android.support.annotation.NonNull;
 import android.support.design.widget.FloatingActionButton;
+import android.support.design.widget.Snackbar;
 import android.support.v4.app.ActivityCompat;
+import android.support.v4.app.DialogFragment;
 import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
 import android.view.Surface;
-import android.view.SurfaceView;
-import android.view.TextureView;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.hardware.camera2.CameraDevice;
@@ -37,9 +36,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
-import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.Toast;
 
 import com.ar.core.Matcher;
 import com.ar.core.Utils;
@@ -48,54 +45,26 @@ import com.ar.renderer.ARRenderer;
 import com.ar.renderer.OpenCVRenderer;
 import com.ar.renderer.OpenGLRenderer;
 
-import org.opencv.BuildConfig;
 import org.opencv.android.BaseLoaderCallback;
 import org.opencv.android.CameraBridgeViewBase;
 import org.opencv.android.JavaCamera2View;
 import org.opencv.android.JavaCameraView;
 import org.opencv.android.LoaderCallbackInterface;
 import org.opencv.android.OpenCVLoader;
-import org.opencv.core.MatOfPoint2f;
-import org.opencv.core.Point;
-import org.opencv.core.Core;
 import org.opencv.core.Mat;
-import org.opencv.core.CvType;
-import org.opencv.core.MatOfPoint;
-import org.opencv.core.Scalar;
-import org.opencv.core.Size;
-import org.opencv.imgproc.Imgproc;
-import org.rajawali3d.math.Matrix4;
-import org.rajawali3d.math.Quaternion;
-import org.rajawali3d.math.vector.Vector3;
 import org.rajawali3d.view.ISurface;
 
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.Comparator;
+import java.util.Objects;
 
 
-public class MainActivity extends AppCompatActivity implements CameraBridgeViewBase.CvCameraViewListener2 {
+public class MainActivity extends AppCompatActivity implements
+                            CameraBridgeViewBase.CvCameraViewListener2, DialogResultListener {
     private static final String TAG = "OCVSample::Activity";
-    //Manager for all available cameras of the device
-    private CameraManager cameraManager;
-    //Camera device
-    private CameraDevice myCamera;
-    //Capture session reference
-    private CameraCaptureSession myCaptureSession;
-    //private SurfaceView mySurface;
-    private ImageReader myImageReader;
-    private int myImageWidth;
-    private int myImageHeight;
-    //Id of the used camera
-    String myCameraId;
-    //Surface used for the preview process
-    Surface myPreviewSurface;
-    private ObjLoader myMesh;
+
     protected boolean myIsFabExpanded;
 
     protected ARRenderer myRenderer;
@@ -107,33 +76,28 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
 
     final int CAMERA_PERMISSION_CODE = 1;
 
-    //
-    int MIN_MATCHES = 10;
-
-    Matcher.Algo algo = Matcher.Algo.ORB;
-    boolean firstFrame = true;
-    boolean drawFrame = false;
-    boolean drawMatches = false;
-    boolean drawBorder = true;
+    Matcher.Algo myAlgo = Matcher.Algo.ORB;
+    boolean myIsFirstFrame = true;
 
     boolean myShouldDrawBorder;
     boolean myShouldDrawFrame;
     boolean myShouldDrawModel;
 
+    RendererType myRendererType;
+
+    public final String RENDERING_SETTINGS_DLG = "RenderingSettingsDlg";
+    public final String MODEL_SETTINGS_DLG = "ModelSettingsDlg";
+
     //Camera parameters
-    int imageRefSizeX = 5312;//5312 x 2988 #nb imgref was redim, we cannot use it
+    final int imageRefSizeX = 5312;//5312 x 2988 #nb imgref was redim, we cannot use it
     int imageRefSizeY = 2988;
     double pixelSizeMm = 0.00112;
     double focalLengthMm = 4.3;
     double fpixel;// = focalLengthMm / pixelSizeMm
-    Mat K = null;
+    Mat myK = null;
     Matcher matcher;
     Mat myImgRef;
     //
-
-
-    Bitmap testref;
-    Handler uiHandler;
 
     private CameraBridgeViewBase mOpenCvCameraView;
 
@@ -183,7 +147,9 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
 
         setContentView(R.layout.activity_main_new);
 
-        initializeRenderer(RendererType.OPENCV);
+        //myRendererType = RendererType.OPENCV;
+
+        initializeRenderer(RendererType.OPENGL);
 
         myIsFabExpanded = false;
 
@@ -205,27 +171,32 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
 
         closeSubMenusFab();
 
+        //Configure the rendering settings dialog
         FloatingActionButton fabRenderingSettings = this.findViewById(R.id.fabRenderingSettings);
         fabRenderingSettings.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-               RenderingSettingsDlg dlg = new RenderingSettingsDlg(MainActivity.this,
-                       myRenderer.isDrawBorder(), myRenderer.isDrawFrame(), myRenderer.isDrawModel());
-               boolean validated = dlg.openModalDialog();
-               if(validated) {
-                   myShouldDrawBorder = dlg.isDrawBorder();
-                   myShouldDrawFrame = dlg.isDrawFrame();
-                   myShouldDrawModel = dlg.isDrawModel();
-               }
+               RenderingSettingsDlg dlg = new RenderingSettingsDlg();
+               Bundle bundle = new Bundle();
+               bundle.putBoolean("drawBorder", myRenderer.isDrawBorder());
+               bundle.putBoolean("drawFrame", myRenderer.isDrawFrame());
+               bundle.putBoolean("drawModel", myRenderer.isDrawModel());
+                bundle.putBoolean("openGL", myRendererType == RendererType.OPENGL);
+               dlg.setArguments(bundle);
+               dlg.show(getSupportFragmentManager(), RENDERING_SETTINGS_DLG);
             }
         });
 
+        //Configure the model settings dialog
         FloatingActionButton fabModelSettings = this.findViewById(R.id.fabModelSettings);
         fabModelSettings.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                //RenderingSettingsDlg dlg = new RenderingSettingsDlg();
-                //dlg.show();
+                ModelSettingsDlg dlg = new ModelSettingsDlg();
+                Bundle bundle = new Bundle();
+                bundle.putInt("modelType", myRenderer.getCurrentModelType().ordinal());
+                dlg.setArguments(bundle);
+                dlg.show(getSupportFragmentManager(), MODEL_SETTINGS_DLG);
             }
         });
 
@@ -253,11 +224,6 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
         mOpenCvCameraView.setVisibility(CameraBridgeViewBase.VISIBLE);
         mOpenCvCameraView.setCvCameraViewListener(this);
 
-
-        InputStream stream = getResources().openRawResource(R.raw.fox2);
-        BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8));
-        myMesh = new ObjLoader(reader, false);
-
         askForCameraPermission();
     }
 
@@ -271,6 +237,47 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
         return true;
     }
 
+    /**
+     * Called when an open dialog returns, following a click on "OK" button
+     * @param dialog Concerned dialog
+     */
+    @Override
+    public void onDialogPositiveClick(DialogFragment dialog) {
+        if(Objects.equals(dialog.getTag(), RENDERING_SETTINGS_DLG)) {
+            RenderingSettingsDlg dlg = (RenderingSettingsDlg) dialog;
+            myRenderer.shouldDrawBorder(dlg.isDrawBorder());
+            myRenderer.shouldDrawFrame(dlg.isDrawFrame());
+            myRenderer.shouldDrawModel(dlg.isDrawModel());
+            if(dlg.isOpenGLRenderer() && myRendererType != RendererType.OPENGL ||
+                    !dlg.isOpenGLRenderer() && myRendererType != RendererType.OPENCV ) {
+
+                initializeRenderer(dlg.isOpenGLRenderer() ? RendererType.OPENGL : RendererType.OPENCV);
+
+                FloatingActionButton fabRenderingSettings = this.findViewById(R.id.fabRenderingSettings);
+                Snackbar.make(fabRenderingSettings, "Switch to " + myRendererType.toString(), Snackbar.LENGTH_LONG);
+////                        .setAction("Action", null).show();
+            }
+//            CheckBox check = dialog.getDialog().findViewById(R.id.checkDrawBorder);
+//            CheckBox check = findViewById(R.id.checkDrawFrame);
+//            CheckBox check = findViewById(R.id.checkDrawModel);
+        } else if (Objects.equals(dialog.getTag(), MODEL_SETTINGS_DLG)) {
+            ModelSettingsDlg dlg = (ModelSettingsDlg) dialog;
+            myRenderer.setModel(dlg.getSelectedModel());
+        }
+    }
+
+    /**
+     * Called when an open dialog returns, following a click on "Cancel" button
+     * @param dialog
+     */
+    @Override
+    public void onDialogNegativeClick(DialogFragment dialog) {
+
+    }
+
+    /**
+     * Closes the sub menu of floating action buttons
+     */
     private void closeSubMenusFab(){
         LinearLayout layoutFabRendering = this.findViewById(R.id.layoutRenderingSettings);
         LinearLayout layoutFabModel = this.findViewById(R.id.layoutFabModelSettings);
@@ -283,7 +290,9 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
         myIsFabExpanded = false;
     }
 
-    //Opens FAB submenus
+    /**
+     * Opens the sub menus of floating action buttons
+     */
     private void openSubMenusFab(){
         LinearLayout layoutFabRendering = this.findViewById(R.id.layoutRenderingSettings);
         LinearLayout layoutFabModel = this.findViewById(R.id.layoutFabModelSettings);
@@ -324,21 +333,20 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
     }
 
     public void onCameraViewStarted(int width, int height) {
-//        mRgba = new Mat(height, width, CvType.CV_8UC4);
-//        mIntermediateMat = new Mat(height, width, CvType.CV_8UC4);
-//        mGray = new Mat(height, width, CvType.CV_8UC1);
     }
 
     public void onCameraViewStopped() {
-//        mRgba.release();
-//        mGray.release();
-//        mIntermediateMat.release();
     }
 
+    /**
+     * Called by OpenCV on each camera frame
+     * @param inputFrame Given frame
+     * @return Processed frame
+     */
     public Mat onCameraFrame(CameraBridgeViewBase.CvCameraViewFrame inputFrame) {
         Mat frame = inputFrame.rgba();
 
-        if (firstFrame) {
+        if (myIsFirstFrame) {
             //InputStream stream = getResources().openRawResource(R.raw.ref2corrigee);
 //            myRenderer.setViewPort(frame.width(), frame.height());
 //            final FrameLayout frameLayout = (FrameLayout) findViewById(R.id.rootLayout);
@@ -356,50 +364,38 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
             myImgRef = new Mat();
             org.opencv.android.Utils.bitmapToMat(ref, myImgRef);
             //org.opencv.imgproc.Imgproc.cvtColor(myImgRef, myImgRef, Imgproc.COLOR_BGR2GRAY);
-            matcher.computeReferenceImage(myImgRef, algo);
-            firstFrame = false;
+            matcher.computeReferenceImage(myImgRef, myAlgo);
+            myIsFirstFrame = false;
 
 
             //For video, resize pixel size accordingly
             pixelSizeMm = pixelSizeMm * (imageRefSizeY / (double) frame.height());
             fpixel = focalLengthMm / pixelSizeMm;
-            K = Utils.computeIntrinsicParamsMatrix(pixelSizeMm, focalLengthMm,
+            myK = Utils.computeIntrinsicParamsMatrix(pixelSizeMm, focalLengthMm,
                                 frame.width() / 2., frame.height() / 2.);
 
-            myRenderer.setIntrinsicParamsMatrix(K);
-            //myRenderer.translateMesh(myImgRef.width() / 2., -myImgRef.height() / 2.); //with opengl axis
+            myRenderer.setIntrinsicParamsMatrix(myK);
+            //myRenderer.setModelPosition(myImgRef.width() / 2., -myImgRef.height() / 2.); //with opengl axis
             myRenderer.setModelPosition(myImgRef.width() / 2., myImgRef.height() / 2., 0); //with opencv axis
         }
 
-        Mat h = matcher.computeHomography(frame, algo);
+        Mat h = matcher.computeHomography(frame, myAlgo);
         //h.convertTo(h, CvType.CV_32F);
         if (h != null && !h.empty()) {
-
-//            Mat proj = Utils.projectionMatrix(K, h);
-//            frame = Utils.render(frame, myMesh, proj, myImgRef, true, null);
-//            frame.convertTo(frame, CvType.CV_8UC3);
-//
-//            if(drawFrame) {
-//                Utils.drawFrame(frame, proj, myImgRef);
-//            }
-
-            myRenderer.shouldDrawBorder(myShouldDrawBorder);
-            myRenderer.shouldDrawFrame(myShouldDrawFrame);
-            myRenderer.shouldDrawModel(myShouldDrawModel);
+            myRenderer.askDrawing(true);
 
             Mat translation = new Mat();
-            Mat rotation = new Mat(3, 3, K.type());
-            Mat proj = Utils.projectionMatrix(K, h, translation, rotation);
+            Mat rotation = new Mat(3, 3, myK.type());
+            Mat proj = Utils.projectionMatrix(myK, h, translation, rotation);
 
+            myRenderer.setModelPosition(myImgRef.width() / 2., myImgRef.height() / 2., 0); //with opencv axis
             myRenderer.setExtrinsicMatrix(translation, rotation);
             myRenderer.render(frame, h, proj, myImgRef.width(), myImgRef.height());
 
             translation.release();
             rotation.release();
         } else {
-            myRenderer.shouldDrawModel(false);
-            myRenderer.shouldDrawBorder(false);
-            myRenderer.shouldDrawFrame(false);
+            myRenderer.askDrawing(false);
         }
 
         return frame;
@@ -421,16 +417,41 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
         return true;
     }
 
+    /**
+     * Prompts the user for camera permission if not already allowed
+     */
     public void askForCameraPermission() {
         if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_DENIED)
             ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION_CODE);
     }
 
+    /**
+     * Initializes the given renderer
+     * @param type renderer to instanciate
+     */
+    // TODO: 09/10/2019 Should use app state to initalize renderers
     public void initializeRenderer(RendererType type) {
-        if(type == RendererType.OPENCV) {
-            Color c = new Color();
 
+        //Clean
+        FrameLayout frameLayout = findViewById(R.id.rootLayout);
+        View view = frameLayout.getChildAt(0);
+        //Ugly
+        if(view instanceof org.rajawali3d.view.SurfaceView) {
+            frameLayout.removeView(view);
+            org.rajawali3d.view.SurfaceView rview = (org.rajawali3d.view.SurfaceView) view;
+        }
+
+        if(myRendererType == RendererType.OPENGL) {
+            ((OpenGLRenderer) myRenderer).removeScene(((OpenGLRenderer) myRenderer).getCurrentScene());
+            ((OpenGLRenderer) myRenderer).stopRendering();
+        }
+
+        if(type == RendererType.OPENCV) {
             myRenderer = new OpenCVRenderer(this, 250,60,10);
+            if(myK != null) {
+                myRenderer.setIntrinsicParamsMatrix(myK);
+                myRenderer.setModelPosition(myImgRef.width() / 2., myImgRef.height() / 2., 0); //with opencv axis
+            }
         } else {
             org.rajawali3d.view.SurfaceView rajawaliView = new org.rajawali3d.view.SurfaceView(this);
             rajawaliView.setZOrderMediaOverlay(true);
@@ -442,8 +463,9 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
             rajawaliView.setRenderMode(ISurface.RENDERMODE_WHEN_DIRTY);
 
             //myRenderer.setRenderSurface(rawajaliView);
+//            if(myK != null)
+//                myRenderer.setIntrinsicParamsMatrix(myK);
 
-            FrameLayout frameLayout = findViewById(R.id.rootLayout);
             //FrameLayout v = new FrameLayout(this);
             frameLayout.addView(rajawaliView, 0);
             renderer.setViewPort(1920, 1080);
@@ -451,6 +473,8 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
             params.width = ViewGroup.LayoutParams.MATCH_PARENT;
             rajawaliView.setLayoutParams(params);
         }
+
+        myRendererType = type;
     }
 
 }

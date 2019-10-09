@@ -33,6 +33,7 @@ public class OpenCVRenderer implements ARRenderer {
     protected boolean myShouldDrawBorder;
     protected boolean myShouldDrawFrame;
     protected boolean myShouldDrawModel;
+    protected boolean myIsAskDrawing;
     protected Context myContext;
     protected ObjLoader myMesh;
     protected Mat myK;
@@ -42,6 +43,7 @@ public class OpenCVRenderer implements ARRenderer {
     protected Point3 myModelScale;
     protected Point3 myModelPosition;
     protected Mat myTexture;
+    protected ModelType myModelType;
 
     public OpenCVRenderer(Context context, int r, int g, int b) {
         this(context);
@@ -58,6 +60,7 @@ public class OpenCVRenderer implements ARRenderer {
     protected OpenCVRenderer(Context context) {
         myContext = context;
 
+        myIsAskDrawing = false;
         myShouldDrawBorder = true;
         myShouldDrawFrame = true;
         myShouldDrawModel = true;
@@ -98,6 +101,10 @@ public class OpenCVRenderer implements ARRenderer {
 
     @Override
     public Mat render(Mat frame, Mat homography, Mat proj, int imgRefWidth, int imgRefHeight) {
+        //If homography could not be found, return
+        if(!myIsAskDrawing)
+            return frame;
+
         if(myShouldDrawBorder) {
             MatOfPoint2f pts = new MatOfPoint2f(new Point(0f, 0f),
                     new Point(0f, imgRefHeight - 1),
@@ -142,6 +149,11 @@ public class OpenCVRenderer implements ARRenderer {
     }
 
     @Override
+    public void askDrawing(boolean ask){
+        myIsAskDrawing = ask;
+    }
+
+    @Override
     public boolean isDrawBorder() {
         return myShouldDrawBorder;
     }
@@ -169,6 +181,8 @@ public class OpenCVRenderer implements ARRenderer {
             myMesh = new ObjLoader(reader, false);
             myModelScale = new Point3(8, -8, -8);
         }
+
+        myModelType = type;
     }
 
     @Override
@@ -188,6 +202,11 @@ public class OpenCVRenderer implements ARRenderer {
     @Override
     public void setModelRotation(double axisX, double axisY, double axisZ, double angleDegrees) {
 
+    }
+
+    @Override
+    public ModelType getCurrentModelType() {
+        return myModelType;
     }
 
     /**
