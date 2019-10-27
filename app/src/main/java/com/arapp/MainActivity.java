@@ -254,8 +254,9 @@ public class MainActivity extends AppCompatActivity implements
                 initializeRenderer(dlg.isOpenGLRenderer() ? RendererType.OPENGL : RendererType.OPENCV);
 
                 FloatingActionButton fabRenderingSettings = this.findViewById(R.id.fabRenderingSettings);
-                Snackbar.make(fabRenderingSettings, "Switch to " + myRendererType.toString(), Snackbar.LENGTH_LONG);
-////                        .setAction("Action", null).show();
+                Snackbar.make(fabRenderingSettings,
+                          "Switch to " + myRendererType.toString(), Snackbar.LENGTH_LONG)
+                        .setAction("Action", null).show();
             }
 //            CheckBox check = dialog.getDialog().findViewById(R.id.checkDrawBorder);
 //            CheckBox check = findViewById(R.id.checkDrawFrame);
@@ -462,13 +463,16 @@ public class MainActivity extends AppCompatActivity implements
             rajawaliView.setSurfaceRenderer(renderer);
             rajawaliView.setRenderMode(ISurface.RENDERMODE_WHEN_DIRTY);
 
-            //myRenderer.setRenderSurface(rawajaliView);
-//            if(myK != null)
-//                myRenderer.setIntrinsicParamsMatrix(myK);
+            renderer.setViewPort(1920, 1080);
+//            myRenderer.setRenderSurface(rawajaliView);
+            if(myK != null) {
+                myRenderer.setIntrinsicParamsMatrix(myK);
+                myRenderer.setModelPosition(myImgRef.width() / 2., myImgRef.height() / 2., 0); //with opencv axis
+            }
 
             //FrameLayout v = new FrameLayout(this);
             frameLayout.addView(rajawaliView, 0);
-            renderer.setViewPort(1920, 1080);
+
             ViewGroup.LayoutParams params = rajawaliView.getLayoutParams();
             params.width = ViewGroup.LayoutParams.MATCH_PARENT;
             rajawaliView.setLayoutParams(params);

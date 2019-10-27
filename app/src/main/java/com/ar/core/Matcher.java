@@ -23,13 +23,11 @@ import org.opencv.core.Point;
 import org.opencv.core.Scalar;
 import org.opencv.core.Size;
 import org.opencv.features2d.BFMatcher;
-//import org.opencv.highgui.HighGui;
 import org.opencv.features2d.FlannBasedMatcher;
 import org.opencv.imgcodecs.Imgcodecs;
 import org.opencv.imgproc.Imgproc;
 import org.opencv.videoio.VideoCapture;
 
-import com.ar.loader3d.ObjLoader;
 
 public class Matcher {
     public enum Algo {ORB, SIFT};
@@ -183,12 +181,18 @@ public class Matcher {
      * @return The homography matrix
      */
     public Mat computeHomography(Mat image, Algo algo) {
-        //Image image = reader.acquireNextImage();
-        //org.opencv.android.Utils.bitmapToMat();
+        //        Mat homography = new Mat();
+//        boolean res = computeHomography(myKpRef.nativeObj, myDescRef.nativeObj, image.getNativeObjAddr(),
+//                homography.nativeObj, 0, 0, 200, 0.7f, 8);
+//
+//        if(res)
+//            return homography;
+//        return null;
+
         MatOfKeyPoint kpFrame = new MatOfKeyPoint();
         Mat descFrame = new Mat();
         detector(image, algo, kpFrame, descFrame);
-        //Log.i("lol", ""+descFrame);
+
         if(descFrame.rows() < 2)
             return null;
         List<DMatch> matches = match(myDescRef, descFrame, algo);
@@ -323,4 +327,7 @@ public class Matcher {
             }
         }
     }
+
+    //public native boolean computeHomography(long addrKpRef, long addrDescRef, long addrImage,
+    //                                        long addrHomography, int algo, int matchingType, int nMatch, float loweRatio, int minMatches);
 }
